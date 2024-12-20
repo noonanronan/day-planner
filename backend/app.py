@@ -20,54 +20,11 @@ class Worker(db.Model):
     def __repr__(self):
         return f"<Worker {self.name}>"
 
-# API endpoint to create a worker
-@app.route("/workers", methods=["POST"])
-def create_worker():
-    print("Received request at /workers")
-    try:
-        data = request.get_json()
-        print("Data received:", data)
-        # Rest of your code here...
-    except Exception as e:
-        print("Error:", str(e))
-        return jsonify({"error": str(e)}), 500
-    try:
-        # Get JSON data from the request
-        data = request.get_json()
-        
-        # Extract worker details
-        name = data.get("name")
-        roles = data.get("roles")
-        availability = data.get("availability")
-        
-        # Validate the input
-        if not name or not roles or not availability:
-            return jsonify({"error": "Missing required fields: name, roles, or availability"}), 400
-        
-        # Create a new worker object
-        new_worker = Worker(name=name, roles=roles, availability=availability)
-        
-        # Add to the database
-        db.session.add(new_worker)
-        db.session.commit()
-        
-        return jsonify({"message": "Worker created successfully", "worker": {
-            "id": new_worker.id,
-            "name": new_worker.name,
-            "roles": new_worker.roles,
-            "availability": new_worker.availability
-        }}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # API endpoint to get all workers
 @app.route("/workers", methods=["GET"])
 def get_all_workers():
     try:
-        # Query all workers from the database
         workers = Worker.query.all()
-
-        # Format the workers as a list of dictionaries
         workers_list = [
             {
                 "id": worker.id,
@@ -77,8 +34,81 @@ def get_all_workers():
             }
             for worker in workers
         ]
-
         return jsonify({"workers": workers_list}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# API endpoint to get a worker by ID
+@app.route("/workers/<int:worker_id>", methods=["GET"])
+def get_worker_by_id(worker_id):
+    try:
+        # Query the worker by ID
+        worker = Worker.query.get(worker_id)
+        
+        if not worker:
+            return jsonify({"error": f"No worker found with ID {worker_id}"}), 404
+
+        # Format the worker as a dictionary
+        worker_data = {
+            "id": worker.id,
+            "name": worker.name,
+            "roles": worker.roles,
+            "availability": worker.availability
+        }
+
+        return jsonify({"worker": worker_data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# API endpoint to update a worker by ID
+@app.route("/workers/<int:worker_id>", methods=["PUT"])
+def update_worker(worker_id):
+    try:
+        # Query the worker by ID
+        worker = Worker.query.get(worker_id)
+        
+        if not worker:
+            return jsonify({"error": f"No worker found with ID {worker_id}"}), 404
+
+        # Get JSON data from the request
+        data = request.get_json()
+
+        # Update worker fields
+        worker.name = data.get("name", worker.name)
+        worker.roles = data.get("roles", worker.roles)
+        worker.availability = data.get("availability", worker.availability)
+
+        # Commit changes to the database
+        db.session.commit()
+
+        # Return the updated worker details
+        updated_worker_data = {
+            "id": worker.id,
+            "name": worker.name,
+            "roles": worker.roles,
+            "availability": worker.availability
+        }
+
+        return jsonify({"message": "Worker updated successfully", "worker": updated_worker_data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/workers/<int:worker_id>", methods=["DELETE"])
+def delete_worker(worker_id):
+    try:
+        # Query the worker by ID
+        worker = Worker.query.get(worker_id)
+
+        # Check if worker exists
+        if not worker:
+            return jsonify({"error": f"Worker with ID {worker_id} not found"}), 404
+
+        # Delete the worker
+        db.session.delete(worker)
+        db.session.commit()
+
+        return jsonify({"message": "Worker deleted successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
