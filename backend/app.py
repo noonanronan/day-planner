@@ -1,7 +1,11 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
+import logging
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
+logging.basicConfig(level=logging.DEBUG)
 
 # Configure the MySQL database connection
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Wabbeylodge1987%23@localhost/day_planner'
@@ -38,18 +42,45 @@ def get_all_workers():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# API endpoint to create a worker
+@app.route("/workers", methods=["POST"])
+def create_worker():
+    try:
+        logging.debug("Incoming request data: %s", request.json)
+        data = request.get_json()
+
+        if not data or "name" not in data or "roles" not in data or "availability" not in data:
+            return jsonify({"error": "Missing required fields: name, roles, or availability"}), 400
+
+        new_worker = Worker(
+            name=data["name"],
+            roles=data["roles"],
+            availability=data["availability"],
+        )
+        db.session.add(new_worker)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Worker created successfully",
+            "worker": {
+                "id": new_worker.id,
+                "name": new_worker.name,
+                "roles": new_worker.roles,
+                "availability": new_worker.availability,
+            },
+        }), 201
+    except Exception as e:
+        logging.error("Error creating worker: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 # API endpoint to get a worker by ID
 @app.route("/workers/<int:worker_id>", methods=["GET"])
 def get_worker_by_id(worker_id):
     try:
-        # Query the worker by ID
         worker = Worker.query.get(worker_id)
-        
         if not worker:
             return jsonify({"error": f"No worker found with ID {worker_id}"}), 404
 
-        # Format the worker as a dictionary
         worker_data = {
             "id": worker.id,
             "name": worker.name,
@@ -65,24 +96,17 @@ def get_worker_by_id(worker_id):
 @app.route("/workers/<int:worker_id>", methods=["PUT"])
 def update_worker(worker_id):
     try:
-        # Query the worker by ID
         worker = Worker.query.get(worker_id)
-        
         if not worker:
             return jsonify({"error": f"No worker found with ID {worker_id}"}), 404
 
-        # Get JSON data from the request
         data = request.get_json()
-
-        # Update worker fields
         worker.name = data.get("name", worker.name)
         worker.roles = data.get("roles", worker.roles)
         worker.availability = data.get("availability", worker.availability)
 
-        # Commit changes to the database
         db.session.commit()
 
-        # Return the updated worker details
         updated_worker_data = {
             "id": worker.id,
             "name": worker.name,
@@ -94,24 +118,20 @@ def update_worker(worker_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# API endpoint to delete a worker
 @app.route("/workers/<int:worker_id>", methods=["DELETE"])
 def delete_worker(worker_id):
     try:
-        # Query the worker by ID
         worker = Worker.query.get(worker_id)
-
-        # Check if worker exists
         if not worker:
             return jsonify({"error": f"Worker with ID {worker_id} not found"}), 404
 
-        # Delete the worker
         db.session.delete(worker)
         db.session.commit()
 
         return jsonify({"message": "Worker deleted successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 # Home route to confirm the app is running
 @app.route("/")
