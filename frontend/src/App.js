@@ -12,9 +12,7 @@ const App = () => {
                     <a className="navbar-brand" href="/">Day Planner</a>
                     <div className="collapse navbar-collapse">
                         <ul className="navbar-nav">
-                            <li className="nav-item">
-                                <Link className="nav-link" to="/">Home</Link>
-                            </li>
+                            
                             <li className="nav-item">
                                 <Link className="nav-link" to="/create-worker">Create Worker</Link>
                             </li>

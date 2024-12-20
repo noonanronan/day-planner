@@ -1,42 +1,52 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 import { createWorker } from "../services/workerService";
 
-const isValidJSON = (input) => {
-    try {
-        JSON.parse(input);
-        return true;
-    } catch (error) {
-        return false;
-    }
-};
+const predefinedRoles = ["AATT", "MT", "ICA"]; // Predefined roles
 
 const CreateWorker = () => {
     const [name, setName] = useState("");
-    const [roles, setRoles] = useState("");
-    const [availability, setAvailability] = useState("");
-    const [isAvailabilityValid, setIsAvailabilityValid] = useState(true); // Track JSON validity
+    const [selectedRoles, setSelectedRoles] = useState([]);
+    const [availability, setAvailability] = useState([]);
     const navigate = useNavigate();
 
-    const handleAvailabilityChange = (e) => {
-        const input = e.target.value;
-        setAvailability(input);
-        setIsAvailabilityValid(isValidJSON(input));
+    const handleRoleChange = (role) => {
+        setSelectedRoles((prevRoles) =>
+            prevRoles.includes(role)
+                ? prevRoles.filter((r) => r !== role)
+                : [...prevRoles, role]
+        );
+    };
+
+    const handleAddAvailability = () => {
+        setAvailability([...availability, { start: null, end: null }]);
+    };
+
+    const handleRemoveAvailability = (index) => {
+        setAvailability(availability.filter((_, i) => i !== index));
+    };
+
+    const handleDateChange = (index, type, date) => {
+        const updatedAvailability = [...availability];
+        updatedAvailability[index][type] = date;
+        setAvailability(updatedAvailability);
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!isValidJSON(availability)) {
-            alert("Invalid JSON format for availability");
+        if (availability.some(({ start, end }) => !start || !end)) {
+            alert("Please fill out all availability fields.");
             return;
         }
 
         try {
             const workerData = {
                 name,
-                roles: roles.split(",").map((role) => role.trim()),
-                availability: JSON.parse(availability),
+                roles: selectedRoles,
+                availability,
             };
             await createWorker(workerData);
             navigate("/");
@@ -61,29 +71,77 @@ const CreateWorker = () => {
                     />
                 </div>
                 <div className="mb-3">
-                    <label className="form-label">Roles (comma-separated)</label>
-                    <input
-                        type="text"
-                        className="form-control"
-                        value={roles}
-                        onChange={(e) => setRoles(e.target.value)}
-                        required
-                    />
+                    <label className="form-label">Roles</label>
+                    <div>
+                        {predefinedRoles.map((role) => (
+                            <div className="form-check" key={role}>
+                                <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    id={role}
+                                    checked={selectedRoles.includes(role)}
+                                    onChange={() => handleRoleChange(role)}
+                                />
+                                <label className="form-check-label" htmlFor={role}>
+                                    {role}
+                                </label>
+                            </div>
+                        ))}
+                    </div>
                 </div>
                 <div className="mb-3">
-                    <label className="form-label">Availability (JSON format)</label>
-                    <textarea
-                        className={`form-control ${isAvailabilityValid ? "" : "is-invalid"}`}
-                        rows="5"
-                        value={availability}
-                        onChange={handleAvailabilityChange}
-                        required
-                    />
-                    {!isAvailabilityValid && (
-                        <div className="invalid-feedback">
-                            Please enter a valid JSON format.
+                    <label className="form-label">Availability</label>
+                    {availability.map((range, index) => (
+                        <div key={index} className="d-flex align-items-center mb-2">
+                            <DatePicker
+                                selected={range.start}
+                                onChange={(date) => handleDateChange(index, "start", date)}
+                                selectsStart
+                                startDate={range.start}
+                                endDate={range.end}
+                                showTimeSelect
+                                timeFormat="HH:mm"
+                                timeIntervals={30}
+                                timeCaption="Time"
+                                minTime={new Date().setHours(7, 0, 0)}
+                                maxTime={new Date().setHours(20, 0, 0)}
+                                dateFormat="Pp"
+                                placeholderText="Start Time"
+                                className="form-control me-2"
+                            />
+                            <DatePicker
+                                selected={range.end}
+                                onChange={(date) => handleDateChange(index, "end", date)}
+                                selectsEnd
+                                startDate={range.start}
+                                endDate={range.end}
+                                minDate={range.start}
+                                showTimeSelect
+                                timeFormat="HH:mm"
+                                timeIntervals={30}
+                                timeCaption="Time"
+                                minTime={new Date().setHours(7, 0, 0)}
+                                maxTime={new Date().setHours(20, 0, 0)}
+                                dateFormat="Pp"
+                                placeholderText="End Time"
+                                className="form-control me-2"
+                            />
+                            <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                onClick={() => handleRemoveAvailability(index)}
+                            >
+                                Remove
+                            </button>
                         </div>
-                    )}
+                    ))}
+                    <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleAddAvailability}
+                    >
+                        Add Availability
+                    </button>
                 </div>
                 <button type="submit" className="btn btn-success">Create</button>
             </form>
