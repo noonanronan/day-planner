@@ -53,9 +53,13 @@ const UpdateWorker = () => {
     };
 
     const handleDateChange = (index, type, date) => {
-        const updatedAvailability = [...availability];
-        updatedAvailability[index][type] = date;
-        setAvailability(updatedAvailability);
+        if (date instanceof Date && !isNaN(date)) { // Ensure the date is valid
+            const updatedAvailability = [...availability];
+            updatedAvailability[index][type] = date;
+            setAvailability(updatedAvailability);
+        } else {
+            console.error("Invalid date:", date);
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -127,8 +131,8 @@ const UpdateWorker = () => {
                                 timeFormat="HH:mm"
                                 timeIntervals={30}
                                 timeCaption="Time"
-                                minTime={new Date().setHours(7, 0, 0)}
-                                maxTime={new Date().setHours(20, 0, 0)}
+                                minTime={new Date(new Date().setHours(7, 0, 0, 0))} // Set to 7:00 AM
+                                maxTime={new Date(new Date().setHours(20, 0, 0, 0))} // Set to 8:00 PM
                                 dateFormat="Pp"
                                 placeholderText="Start Time"
                                 className="form-control me-2"
@@ -139,17 +143,17 @@ const UpdateWorker = () => {
                                 selectsEnd
                                 startDate={range.start}
                                 endDate={range.end}
-                                minDate={range.start}
                                 showTimeSelect
                                 timeFormat="HH:mm"
                                 timeIntervals={30}
                                 timeCaption="Time"
-                                minTime={new Date().setHours(7, 0, 0)}
-                                maxTime={new Date().setHours(20, 0, 0)}
+                                minTime={new Date(new Date().setHours(7, 0, 0, 0))} // Set to 7:00 AM
+                                maxTime={new Date(new Date().setHours(20, 0, 0, 0))} // Set to 8:00 PM
                                 dateFormat="Pp"
                                 placeholderText="End Time"
                                 className="form-control me-2"
                             />
+
 
                             <button
                                 type="button"
