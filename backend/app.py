@@ -1,11 +1,17 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from datetime import time
+import openpyxl
+import os
 import logging
+from pyexcel_ods3 import get_data  # For .ods files
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
-logging.basicConfig(level=logging.DEBUG)
+
+# Enable logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
 
 # Configure the MySQL database connection
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Wabbeylodge1987%23@localhost/day_planner'
@@ -38,8 +44,10 @@ def get_all_workers():
             }
             for worker in workers
         ]
+        logging.info("Fetched all workers successfully.")
         return jsonify({"workers": workers_list}), 200
     except Exception as e:
+        logging.error(f"Error fetching workers: {e}")
         return jsonify({"error": str(e)}), 500
 
 # API endpoint to create a worker
@@ -60,6 +68,7 @@ def create_worker():
         db.session.add(new_worker)
         db.session.commit()
 
+        logging.info(f"Worker {new_worker.name} created successfully.")
         return jsonify({
             "message": "Worker created successfully",
             "worker": {
@@ -70,68 +79,65 @@ def create_worker():
             },
         }), 201
     except Exception as e:
-        logging.error("Error creating worker: %s", e)
+        logging.error(f"Error creating worker: {e}")
         return jsonify({"error": str(e)}), 500
 
-# API endpoint to get a worker by ID
-@app.route("/workers/<int:worker_id>", methods=["GET"])
-def get_worker_by_id(worker_id):
+# API to handle Excel/ODS upload and parsing
+@app.route('/upload-excel', methods=['POST'])
+def upload_excel():
     try:
-        worker = Worker.query.get(worker_id)
-        if not worker:
-            return jsonify({"error": f"No worker found with ID {worker_id}"}), 404
+        # Check if a file is uploaded
+        if 'file' not in request.files:
+            app.logger.warning("No file selected in the request.")
+            return jsonify({'error': 'No file provided'}), 400
 
-        worker_data = {
-            "id": worker.id,
-            "name": worker.name,
-            "roles": worker.roles,
-            "availability": worker.availability
-        }
+        file = request.files['file']
+        if file.filename == '':
+            app.logger.warning("No file selected in the request.")
+            return jsonify({'error': 'No selected file'}), 400
 
-        return jsonify({"worker": worker_data}), 200
+        # Save the file temporarily
+        temp_path = os.path.join('temp', file.filename)
+        file.save(temp_path)
+
+        # Determine the file format and open accordingly
+        rows = []
+        if temp_path.endswith('.xlsx'):
+            app.logger.info("Processing an .xlsx file.")
+            workbook = openpyxl.load_workbook(temp_path)
+            sheet = workbook.active
+
+            # Extract rows, converting time objects to strings
+            for row in sheet.iter_rows(min_row=2, values_only=True):  # Skip the header
+                processed_row = [
+                    cell.strftime("%H:%M:%S") if isinstance(cell, time) else cell
+                    for cell in row
+                ]
+                rows.append(processed_row)
+
+        elif temp_path.endswith('.ods'):
+            app.logger.info("Processing an .ods file.")
+            data = get_data(temp_path)
+            for row in data[list(data.keys())[0]]:  # Read the first sheet
+                processed_row = [
+                    cell.strftime("%H:%M:%S") if isinstance(cell, time) else cell
+                    for cell in row
+                ]
+                rows.append(processed_row)
+
+        else:
+            app.logger.error("Unsupported file format.")
+            return jsonify({'error': 'Unsupported file format. Only .xlsx and .ods are allowed.'}), 400
+
+        # Delete the temp file after processing
+        os.remove(temp_path)
+
+        app.logger.info("File processed successfully.")
+        return jsonify({'data': rows}), 200
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# API endpoint to update a worker by ID
-@app.route("/workers/<int:worker_id>", methods=["PUT"])
-def update_worker(worker_id):
-    try:
-        worker = Worker.query.get(worker_id)
-        if not worker:
-            return jsonify({"error": f"No worker found with ID {worker_id}"}), 404
-
-        data = request.get_json()
-        worker.name = data.get("name", worker.name)
-        worker.roles = data.get("roles", worker.roles)
-        worker.availability = data.get("availability", worker.availability)
-
-        db.session.commit()
-
-        updated_worker_data = {
-            "id": worker.id,
-            "name": worker.name,
-            "roles": worker.roles,
-            "availability": worker.availability
-        }
-
-        return jsonify({"message": "Worker updated successfully", "worker": updated_worker_data}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# API endpoint to delete a worker
-@app.route("/workers/<int:worker_id>", methods=["DELETE"])
-def delete_worker(worker_id):
-    try:
-        worker = Worker.query.get(worker_id)
-        if not worker:
-            return jsonify({"error": f"Worker with ID {worker_id} not found"}), 404
-
-        db.session.delete(worker)
-        db.session.commit()
-
-        return jsonify({"message": "Worker deleted successfully"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"Error processing file: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # Home route to confirm the app is running
 @app.route("/")
@@ -141,9 +147,9 @@ def home():
 # Create the database tables
 with app.app_context():
     db.create_all()
-    print("Database tables created successfully!")
+    logging.info("Database tables created successfully!")
 
 # Run the app
 if __name__ == "__main__":
-    print("Starting Flask app...")
+    logging.info("Starting Flask app...")
     app.run(debug=True, port=5001)

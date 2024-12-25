@@ -2,9 +2,13 @@ import React, { useEffect, useState } from "react";
 import { getAllWorkers, deleteWorker } from "../services/workerService";
 import { useNavigate } from "react-router-dom";
 import { format, isWithinInterval, parseISO, isValid, compareAsc } from "date-fns";
+import axios from "axios";
 
 const WorkerList = () => {
     const [workers, setWorkers] = useState([]);
+    const [file, setFile] = useState(null); // State to manage the file
+    const [uploadResponse, setUploadResponse] = useState(null); // To display response from upload
+    const [error, setError] = useState(""); // Error state for file upload
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -27,6 +31,40 @@ const WorkerList = () => {
         } catch (error) {
             console.error("Error deleting worker:", error);
             alert("Failed to delete worker.");
+        }
+    };
+
+    const handleFileChange = (e) => {
+        const selectedFile = e.target.files[0];
+        if (selectedFile && (selectedFile.type.includes("spreadsheet") || selectedFile.name.endsWith(".xlsx") || selectedFile.name.endsWith(".ods"))) {
+            setFile(selectedFile);
+            setError(""); // Clear any previous errors
+        } else {
+            setFile(null);
+            setError("Please select a valid Excel (.xlsx) or ODS (.ods) file.");
+        }
+    };
+
+    const handleUpload = async () => {
+        if (!file) {
+            setError("No file selected. Please select a file to upload.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const response = await axios.post("http://127.0.0.1:5001/upload-excel", formData, {
+                headers: {
+                    "Content-Type": "multipart/form-data",
+                },
+            });
+            setUploadResponse(response.data.data);
+            alert("File uploaded successfully!");
+        } catch (error) {
+            console.error("Error uploading file:", error);
+            setError("Failed to upload the file. Please check the format and try again.");
         }
     };
 
@@ -56,7 +94,6 @@ const WorkerList = () => {
         });
     };
 
-    // Sort workers: those available today first, followed by others based on next availability
     const sortedWorkers = [...workers].sort((a, b) => {
         const aAvailableToday = isWorkerAvailableToday(a.availability);
         const bAvailableToday = isWorkerAvailableToday(b.availability);
@@ -77,7 +114,28 @@ const WorkerList = () => {
     return (
         <div className="container mt-4">
             <h1 className="text-center mb-4">Worker List</h1>
-            <div className="row g-2">
+            <div className="mb-4">
+                <h4>Upload Excel File</h4>
+                <input
+                    type="file"
+                    className="form-control mb-2"
+                    accept=".xlsx,.ods"
+                    onChange={handleFileChange}
+                />
+                <button className="btn btn-primary" onClick={handleUpload}>
+                    Upload File
+                </button>
+                {error && <p className="text-danger mt-2">{error}</p>}
+            </div>
+            {uploadResponse && (
+                <div className="mt-4">
+                    <h5>Upload Response Preview:</h5>
+                    <div className="border rounded p-3" style={{ maxHeight: "300px", overflowY: "scroll" }}>
+                        <pre>{JSON.stringify(uploadResponse, null, 2)}</pre>
+                    </div>
+                </div>
+            )}
+            <div className="row g-2 mt-4">
                 {sortedWorkers.map((worker) => {
                     const nextAvailability = getNextAvailability(worker.availability);
                     const isInToday = isWorkerAvailableToday(worker.availability);
