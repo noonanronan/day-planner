@@ -1,11 +1,16 @@
+# Backend Code
+
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from datetime import time
+from pyexcel_ods3 import get_data  # For .ods files
+from pyexcel_ods3 import save_data
+from flask import send_file
+from io import BytesIO
 import openpyxl
 import os
 import logging
-from pyexcel_ods3 import get_data  # For .ods files
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
@@ -49,6 +54,67 @@ def get_all_workers():
     except Exception as e:
         logging.error(f"Error fetching workers: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/generate-schedule', methods=['POST'])
+def generate_schedule():
+    try:
+        # Get the input file format (optional: based on user preference or file type)
+        file_format = request.args.get('format', 'xlsx')  # Default to .xlsx
+
+        # Load workers from the database
+        workers = Worker.query.all()
+        worker_data = [
+            [worker.name, ', '.join(worker.roles), str(worker.availability)]
+            for worker in workers
+        ]
+
+        # Generate the schedule in the requested format
+        if file_format == 'xlsx':
+            # Generate an .xlsx file
+            workbook = openpyxl.Workbook()
+            sheet = workbook.active
+            sheet.title = "Schedule"
+
+            # Add headers
+            sheet.append(["Name", "Roles", "Availability"])
+
+            # Add worker data
+            for row in worker_data:
+                sheet.append(row)
+
+            # Save the workbook to memory
+            output = BytesIO()
+            workbook.save(output)
+            output.seek(0)
+
+            return send_file(
+                output,
+                as_attachment=True,
+                download_name='day_schedule.xlsx',
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+
+        elif file_format == 'ods':
+            # Generate an .ods file
+            data = {"Sheet1": [["Name", "Roles", "Availability"]] + worker_data}
+
+            output = BytesIO()
+            save_data(output, data)
+            output.seek(0)
+
+            return send_file(
+                output,
+                as_attachment=True,
+                download_name='day_schedule.ods',
+                mimetype='application/vnd.oasis.opendocument.spreadsheet'
+            )
+
+        else:
+            return jsonify({'error': 'Unsupported file format requested'}), 400
+
+    except Exception as e:
+        logging.error(f"Error generating schedule: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # API endpoint to create a worker
 @app.route("/workers", methods=["POST"])
@@ -138,6 +204,7 @@ def upload_excel():
             return jsonify({'error': 'No selected file'}), 400
 
         # Save the file temporarily
+        os.makedirs('temp', exist_ok=True)
         temp_path = os.path.join('temp', file.filename)
         file.save(temp_path)
 
@@ -171,7 +238,8 @@ def upload_excel():
             return jsonify({'error': 'Unsupported file format. Only .xlsx and .ods are allowed.'}), 400
 
         # Delete the temp file after processing
-        os.remove(temp_path)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
         app.logger.info("File processed successfully.")
         return jsonify({'data': rows}), 200
