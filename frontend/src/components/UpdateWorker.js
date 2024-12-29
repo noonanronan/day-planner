@@ -1,182 +1,182 @@
-import React, { useEffect, useState } from "react";
-import { getAllWorkers, deleteWorker } from "../services/workerService";
-import { useNavigate } from "react-router-dom";
-import { format, isWithinInterval, parseISO, isValid, compareAsc } from "date-fns";
-import axios from "axios";
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { getAllWorkers, updateWorker } from "../services/workerService";
 
-const WorkerList = () => {
-    const [workers, setWorkers] = useState([]);
-    const [file, setFile] = useState(null); // State to manage the file
-    const [uploadResponse, setUploadResponse] = useState(""); // To display response from upload
+const predefinedRoles = ["AATT", "MT", "ICA"]; // predefined roles
+
+const UpdateWorker = () => {
+    const { id } = useParams();
     const navigate = useNavigate();
+    const [name, setName] = useState("");
+    const [selectedRoles, setSelectedRoles] = useState([]); // Updated to handle checkboxes
+    const [availability, setAvailability] = useState([]); // Updated for date ranges
 
     useEffect(() => {
-        const fetchWorkers = async () => {
+        const fetchWorker = async () => {
             try {
                 const data = await getAllWorkers();
-                setWorkers(data.workers);
+                const worker = data.workers.find((worker) => worker.id === parseInt(id));
+                if (worker) {
+                    setName(worker.name);
+                    setSelectedRoles(worker.roles);
+                    setAvailability(
+                        worker.availability.map((range) => ({
+                            start: new Date(range.start),
+                            end: new Date(range.end),
+                        }))
+                    );
+                }
             } catch (error) {
-                console.error("Error fetching workers:", error);
+                console.error("Error fetching worker:", error);
             }
         };
+    
+        fetchWorker();
+    }, [id]);
 
-        fetchWorkers();
-    }, []);
+    const handleRoleChange = (role) => {
+        setSelectedRoles((prevRoles) =>
+            prevRoles.includes(role)
+                ? prevRoles.filter((r) => r !== role) // Remove if already selected
+                : [...prevRoles, role] // Add if not selected
+        );
+    };
 
-    const handleDelete = async (id) => {
-        try {
-            await deleteWorker(id);
-            setWorkers(workers.filter((worker) => worker.id !== id));
-        } catch (error) {
-            console.error("Error deleting worker:", error);
-            alert("Failed to delete worker.");
+    const handleAddAvailability = () => {
+        setAvailability([...availability, { start: null, end: null }]);
+    };
+
+    const handleRemoveAvailability = (index) => {
+        setAvailability(availability.filter((_, i) => i !== index));
+    };
+
+    const handleDateChange = (index, type, date) => {
+        if (date instanceof Date && !isNaN(date)) { // Ensure the date is valid
+            const updatedAvailability = [...availability];
+            updatedAvailability[index][type] = date;
+            setAvailability(updatedAvailability);
+        } else {
+            console.error("Invalid date:", date);
         }
     };
 
-    const handleFileChange = (e) => {
-        setFile(e.target.files[0]);
-    };
-
-    const handleUpload = async () => {
-        if (!file) {
-            alert("Please select a file before uploading.");
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+    
+        if (availability.some(({ start, end }) => !start || !end)) {
+            alert("Please fill out all availability fields.");
             return;
         }
-
-        const formData = new FormData();
-        formData.append("file", file);
-
+    
         try {
-            const response = await axios.post("http://127.0.0.1:5001/upload-excel", formData, {
-                headers: {
-                    "Content-Type": "multipart/form-data",
-                },
-            });
-            setUploadResponse(response.data);
-            alert("File uploaded successfully!");
+            const updatedWorker = {
+                name,
+                roles: selectedRoles,
+                availability,
+            };
+            await updateWorker(id, updatedWorker); // Ensure `id` and `updatedWorker` are correct
+            navigate("/"); // Redirect back to the worker list
         } catch (error) {
-            console.error("Error uploading file:", error);
-            alert("Failed to upload the file. Please try again.");
+            console.error("Error updating worker:", error);
+            alert("Failed to update worker. Please check your input format.");
         }
     };
-
-    const getNextAvailability = (availability) => {
-        const now = new Date();
-        const nextDates = availability
-            .map((range) => {
-                const start = parseISO(range.start);
-                return isValid(start) && compareAsc(start, now) >= 0 ? start : null;
-            })
-            .filter((date) => date !== null)
-            .sort((a, b) => compareAsc(a, b));
-
-        return nextDates.length > 0 ? nextDates[0] : null;
-    };
-
-    const isWorkerAvailableToday = (availability) => {
-        const today = new Date();
-        return availability.some((range) => {
-            const start = parseISO(range.start);
-            const end = parseISO(range.end);
-            return (
-                isValid(start) &&
-                isValid(end) &&
-                isWithinInterval(today, { start, end })
-            );
-        });
-    };
-
-    const sortedWorkers = [...workers].sort((a, b) => {
-        const aAvailableToday = isWorkerAvailableToday(a.availability);
-        const bAvailableToday = isWorkerAvailableToday(b.availability);
-
-        if (aAvailableToday && !bAvailableToday) return -1;
-        if (!aAvailableToday && bAvailableToday) return 1;
-
-        const aNext = getNextAvailability(a.availability);
-        const bNext = getNextAvailability(b.availability);
-
-        if (aNext && bNext) return compareAsc(aNext, bNext);
-        if (aNext && !bNext) return -1;
-        if (!aNext && bNext) return 1;
-
-        return 0;
-    });
+    
 
     return (
         <div className="container mt-4">
-            <h1 className="text-center mb-4">Worker List</h1>
-            <div className="mb-4">
-                <h4>Upload Excel File</h4>
-                <input
-                    type="file"
-                    className="form-control mb-2"
-                    accept=".xlsx,.ods"
-                    onChange={handleFileChange}
-                />
-                <button className="btn btn-primary" onClick={handleUpload}>
-                    Upload File
-                </button>
-            </div>
-            {uploadResponse && (
-                <div className="mt-4">
-                    <h5>Upload Response:</h5>
-                    <pre>{JSON.stringify(uploadResponse, null, 2)}</pre>
+            <h1 className="text-center mb-4">Update Worker</h1>
+            <form onSubmit={handleSubmit}>
+                <div className="mb-3">
+                    <label className="form-label">Name</label>
+                    <input
+                        type="text"
+                        className="form-control"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        required
+                    />
                 </div>
-            )}
-            <div className="row g-2">
-                {sortedWorkers.map((worker) => {
-                    const nextAvailability = getNextAvailability(worker.availability);
-                    const isInToday = isWorkerAvailableToday(worker.availability);
-
-                    return (
-                        <div
-                            className={`col-12 col-sm-6 col-md-4 col-lg-3 ${
-                                isInToday ? "border border-success" : ""
-                            }`}
-                            key={worker.id}
-                        >
-                            <div className="card h-100 shadow-sm">
-                                <div className="card-body p-2">
-                                    <h6 className="card-title mb-2">
-                                        {worker.name}
-                                        {isInToday && (
-                                            <span className="badge bg-success ms-2">In Today</span>
-                                        )}
-                                    </h6>
-                                    <p className="card-text mb-2">
-                                        <strong>Roles:</strong> {worker.roles.join(", ")}
-                                    </p>
-                                    <p className="card-text mb-2">
-                                        <strong>Next Availability:</strong>{" "}
-                                        {isInToday
-                                            ? "In Today"
-                                            : nextAvailability
-                                            ? format(nextAvailability, "MMM dd, yyyy HH:mm")
-                                            : "No upcoming availability"}
-                                    </p>
-                                    <div className="d-flex justify-content-between">
-                                        <button
-                                            className="btn btn-primary btn-sm"
-                                            onClick={() => navigate(`/update-worker/${worker.id}`)}
-                                        >
-                                            Update
-                                        </button>
-                                        <button
-                                            className="btn btn-danger btn-sm"
-                                            onClick={() => handleDelete(worker.id)}
-                                        >
-                                            Delete
-                                        </button>
-                                    </div>
-                                </div>
+                <div className="mb-3">
+                    <label className="form-label">Roles</label>
+                    <div>
+                        {predefinedRoles.map((role) => (
+                            <div className="form-check" key={role}>
+                                <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    id={role}
+                                    checked={selectedRoles.includes(role)}
+                                    onChange={() => handleRoleChange(role)}
+                                />
+                                <label className="form-check-label" htmlFor={role}>
+                                    {role}
+                                </label>
                             </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="mb-3">
+                    <label className="form-label">Availability</label>
+                    {availability.map((range, index) => (
+                        <div key={index} className="d-flex align-items-center mb-2">
+                            <DatePicker
+                                selected={range.start}
+                                onChange={(date) => handleDateChange(index, "start", date)}
+                                selectsStart
+                                startDate={range.start}
+                                endDate={range.end}
+                                showTimeSelect
+                                timeFormat="HH:mm"
+                                timeIntervals={30}
+                                timeCaption="Time"
+                                minTime={new Date(new Date().setHours(7, 0, 0, 0))} // Set to 7:00 AM
+                                maxTime={new Date(new Date().setHours(20, 0, 0, 0))} // Set to 8:00 PM
+                                dateFormat="Pp"
+                                placeholderText="Start Time"
+                                className="form-control me-2"
+                            />
+                            <DatePicker
+                                selected={range.end}
+                                onChange={(date) => handleDateChange(index, "end", date)}
+                                selectsEnd
+                                startDate={range.start}
+                                endDate={range.end}
+                                showTimeSelect
+                                timeFormat="HH:mm"
+                                timeIntervals={30}
+                                timeCaption="Time"
+                                minTime={new Date(new Date().setHours(7, 0, 0, 0))} // Set to 7:00 AM
+                                maxTime={new Date(new Date().setHours(20, 0, 0, 0))} // Set to 8:00 PM
+                                dateFormat="Pp"
+                                placeholderText="End Time"
+                                className="form-control me-2"
+                            />
+
+
+                            <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                onClick={() => handleRemoveAvailability(index)}
+                            >
+                                Remove
+                            </button>
                         </div>
-                    );
-                })}
-            </div>
+                    ))}
+                    <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleAddAvailability}
+                    >
+                        Add Availability
+                    </button>
+                </div>
+                <button type="submit" className="btn btn-primary">Update</button>
+            </form>
         </div>
     );
 };
 
-export default WorkerList;
+export default UpdateWorker;

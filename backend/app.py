@@ -82,6 +82,47 @@ def create_worker():
         logging.error(f"Error creating worker: {e}")
         return jsonify({"error": str(e)}), 500
 
+# API endpoint to update a worker by ID
+@app.route("/workers/<int:worker_id>", methods=["PUT"])
+def update_worker(worker_id):
+    try:
+        worker = Worker.query.get(worker_id)
+        if not worker:
+            return jsonify({"error": f"No worker found with ID {worker_id}"}), 404
+
+        data = request.get_json()
+        worker.name = data.get("name", worker.name)
+        worker.roles = data.get("roles", worker.roles)
+        worker.availability = data.get("availability", worker.availability)
+
+        db.session.commit()
+
+        updated_worker_data = {
+            "id": worker.id,
+            "name": worker.name,
+            "roles": worker.roles,
+            "availability": worker.availability
+        }
+
+        return jsonify({"message": "Worker updated successfully", "worker": updated_worker_data}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# API endpoint to delete a worker by ID
+@app.route("/workers/<int:worker_id>", methods=["DELETE"])
+def delete_worker(worker_id):
+    try:
+        worker = Worker.query.get(worker_id)
+        if not worker:
+            return jsonify({"error": f"Worker with ID {worker_id} not found"}), 404
+
+        db.session.delete(worker)
+        db.session.commit()
+
+        return jsonify({"message": "Worker deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # API to handle Excel/ODS upload and parsing
 @app.route('/upload-excel', methods=['POST'])
 def upload_excel():

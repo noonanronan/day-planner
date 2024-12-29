@@ -167,12 +167,13 @@ const WorkerList = () => {
                                             : "No upcoming availability"}
                                     </p>
                                     <div className="d-flex justify-content-between">
-                                        <button
-                                            className="btn btn-primary btn-sm"
-                                            onClick={() => navigate(`/update-worker/${worker.id}`)}
-                                        >
-                                            Update
-                                        </button>
+                                    <button
+                                        className="btn btn-primary btn-sm"
+                                        onClick={() => navigate(`/update-worker/${worker.id}`)}
+                                    >
+                                        Update
+                                    </button>
+
                                         <button
                                             className="btn btn-danger btn-sm"
                                             onClick={() => handleDelete(worker.id)}
