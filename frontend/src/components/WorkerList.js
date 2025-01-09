@@ -6,13 +6,15 @@ import axios from "axios";
 
 const WorkerList = () => {
     const [workers, setWorkers] = useState([]);
-    const [file, setFile] = useState(null); // State to manage the file
-    const [uploadResponse, setUploadResponse] = useState(null); // To display response from upload
-    const [error, setError] = useState(""); // Error state for file upload
+    const [templates, setTemplates] = useState([]); // List of uploaded templates
+    const [selectedTemplate, setSelectedTemplate] = useState(""); // Selected template for schedule generation
+    const [fileFormat, setFileFormat] = useState("xlsx");
+    const [file, setFile] = useState(null); // For uploading new templates
+    const [error, setError] = useState(null); // Error handling for uploads
     const navigate = useNavigate();
-    const [fileFormat, setFileFormat] = useState('xlsx');
 
     useEffect(() => {
+        // Fetch all workers
         const fetchWorkers = async () => {
             try {
                 const data = await getAllWorkers();
@@ -21,8 +23,20 @@ const WorkerList = () => {
                 console.error("Error fetching workers:", error);
             }
         };
-
+    
+        // Fetch available templates
+        const fetchTemplates = async () => {
+            try {
+                const response = await axios.get("http://127.0.0.1:5001/list-templates"); // Correct endpoint
+                console.log("Templates fetched:", response.data.templates); // Debug log
+                setTemplates(response.data.templates);
+            } catch (error) {
+                console.error("Error fetching templates:", error);
+            }
+        };
+    
         fetchWorkers();
+        fetchTemplates();
     }, []);
 
     const handleDelete = async (id) => {
@@ -36,28 +50,34 @@ const WorkerList = () => {
     };
 
     const handleDownloadSchedule = async () => {
+        if (!selectedTemplate) {
+            alert("Please select a template to generate the schedule.");
+            return;
+        }
+
         try {
             const response = await axios.post(
-                `http://127.0.0.1:5001/generate-schedule?format=${fileFormat}`,
-                {},
+                "http://127.0.0.1:5001/generate-schedule",
+                { template: selectedTemplate },
                 {
-                    responseType: 'blob', // Important for downloading files
+                    params: { format: fileFormat },
+                    responseType: "blob", // Important for downloading files
                 }
             );
-    
-            const extension = fileFormat === 'ods' ? 'ods' : 'xlsx';
+
+            const extension = fileFormat === "ods" ? "ods" : "xlsx";
             const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
+            const link = document.createElement("a");
             link.href = url;
-            link.setAttribute('download', `day_schedule.${extension}`);
+            link.setAttribute("download", `day_schedule.${extension}`);
             document.body.appendChild(link);
             link.click();
         } catch (error) {
-            console.error('Error downloading schedule:', error);
-            alert('Failed to download schedule. Please try again.');
+            console.error("Error downloading schedule:", error);
+            alert("Failed to download schedule. Please try again.");
         }
     };
-    
+
     const handleFileChange = (e) => {
         const selectedFile = e.target.files[0];
         if (
@@ -67,7 +87,7 @@ const WorkerList = () => {
                 selectedFile.name.endsWith(".ods"))
         ) {
             setFile(selectedFile);
-            setError("");
+            setError(null);
         } else {
             setFile(null);
             setError("Please select a valid Excel (.xlsx) or ODS (.ods) file.");
@@ -93,8 +113,8 @@ const WorkerList = () => {
                     },
                 }
             );
-            setUploadResponse(response.data.data);
             alert("File uploaded successfully!");
+            setTemplates((prevTemplates) => [...prevTemplates, response.data.filename]); // Add new template to list
         } catch (error) {
             console.error("Error uploading file:", error);
             setError("Failed to upload the file. Please check the format and try again.");
@@ -148,25 +168,9 @@ const WorkerList = () => {
         <div className="container mt-4">
             <h1 className="text-center mb-4">Worker List</h1>
 
-            {/* File format and download schedule */}
+            {/* Upload Template Section */}
             <div className="mb-4">
-                <label htmlFor="fileFormat">Choose File Format: </label>
-                <select
-                    id="fileFormat"
-                    value={fileFormat}
-                    onChange={(e) => setFileFormat(e.target.value)}
-                >
-                    <option value="xlsx">Excel (.xlsx)</option>
-                    <option value="ods">OpenDocument (.ods)</option>
-                </select>
-                <button className="btn btn-primary ms-2" onClick={handleDownloadSchedule}>
-                    Download Schedule
-                </button>
-            </div>
-
-            {/* File upload */}
-            <div className="mb-4">
-                <h4>Upload Excel File</h4>
+                <h4>Upload Template</h4>
                 <input
                     type="file"
                     className="form-control mb-2"
@@ -177,6 +181,46 @@ const WorkerList = () => {
                     Upload File
                 </button>
                 {error && <p className="text-danger mt-2">{error}</p>}
+            </div>
+
+            {/* Select Template and Generate Schedule Section */}
+            <div className="mb-4">
+                <label htmlFor="templateSelect" className="form-label">
+                    Select Template:
+                </label>
+                <select
+                    id="templateSelect"
+                    className="form-select"
+                    value={selectedTemplate}
+                    onChange={(e) => setSelectedTemplate(e.target.value)}
+                >
+                    <option value="">-- Select a Template --</option>
+                    {templates.map((template, index) => (
+                        <option key={index} value={template}>
+                            {template}
+                        </option>
+                    ))}
+                </select>
+
+                <label htmlFor="fileFormat" className="form-label mt-3">
+                    Choose File Format:
+                </label>
+                <select
+                    id="fileFormat"
+                    className="form-select"
+                    value={fileFormat}
+                    onChange={(e) => setFileFormat(e.target.value)}
+                >
+                    <option value="xlsx">Excel (.xlsx)</option>
+                    <option value="ods">OpenDocument (.ods)</option>
+                </select>
+
+                <button
+                    className="btn btn-primary mt-3"
+                    onClick={handleDownloadSchedule}
+                >
+                    Generate Schedule
+                </button>
             </div>
 
             {/* Worker List */}
@@ -197,7 +241,9 @@ const WorkerList = () => {
                                     <h6 className="card-title mb-2">
                                         {worker.name}
                                         {isInToday && (
-                                            <span className="badge bg-success ms-2">In Today</span>
+                                            <span className="badge bg-success ms-2">
+                                                In Today
+                                            </span>
                                         )}
                                     </h6>
                                     <p className="card-text mb-2">

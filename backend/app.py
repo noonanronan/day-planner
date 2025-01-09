@@ -1,16 +1,15 @@
-# Backend Code
-
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from datetime import time
-from pyexcel_ods3 import get_data  # For .ods files
-from pyexcel_ods3 import save_data
-from flask import send_file
+from datetime import datetime, timezone
+from dateutil import parser
+from pyexcel_ods3 import get_data, save_data
 from io import BytesIO
 import openpyxl
 import os
 import logging
+import random
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
@@ -24,6 +23,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize the database
 db = SQLAlchemy(app)
+
+# Directory for storing uploaded files
+UPLOAD_FOLDER = 'uploaded_templates'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Define a Worker model
 class Worker(db.Model):
@@ -54,67 +57,174 @@ def get_all_workers():
     except Exception as e:
         logging.error(f"Error fetching workers: {e}")
         return jsonify({"error": str(e)}), 500
+    
+@app.route('/upload-excel', methods=['POST'])
+def upload_excel():
+    try:
+        file = request.files['file']
+        if not file:
+            return jsonify({'error': 'No file provided'}), 400
 
+        filename = file.filename
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
+
+        return jsonify({'message': f'File {filename} uploaded successfully'}), 200
+    except Exception as e:
+        logging.error(f"Error uploading file: {e}")
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/list-templates', methods=['GET'])
+def list_templates():
+    try:
+        files = os.listdir(UPLOAD_FOLDER)
+        logging.debug(f"Templates found: {files}")
+        return jsonify({'templates': files}), 200
+    except Exception as e:
+        logging.error(f"Error listing templates: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# API endpoint to upload Excel/ODS files
 @app.route('/generate-schedule', methods=['POST'])
 def generate_schedule():
     try:
-        # Get the input file format (optional: based on user preference or file type)
-        file_format = request.args.get('format', 'xlsx')  # Default to .xlsx
+        selected_file = request.json.get('template')
+        logging.debug(f"Selected file: {selected_file}")
+        if not selected_file:
+            return jsonify({'error': 'No template selected'}), 400
 
-        # Load workers from the database
+        filepath = os.path.join(UPLOAD_FOLDER, selected_file)
+        logging.debug(f"Filepath: {filepath}")
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'Selected template not found'}), 404
+
+        # Fetch all workers from the database
         workers = Worker.query.all()
-        worker_data = [
-            [worker.name, ', '.join(worker.roles), str(worker.availability)]
-            for worker in workers
-        ]
+        today = datetime.now(tz=timezone.utc)
+        logging.debug(f"Today's UTC date: {today}")
 
-        # Generate the schedule in the requested format
-        if file_format == 'xlsx':
-            # Generate an .xlsx file
-            workbook = openpyxl.Workbook()
-            sheet = workbook.active
-            sheet.title = "Schedule"
+        # Separate workers into available and late-shift workers
+        in_today_workers = []
+        late_shift_workers = []
 
-            # Add headers
-            sheet.append(["Name", "Roles", "Availability"])
+        for worker in workers:
+            for availability in worker.availability:
+                start = parser.parse(availability['start']).astimezone(timezone.utc)
+                end = parser.parse(availability['end']).astimezone(timezone.utc)
+                if start <= today <= end:
+                    if start.hour >= 10:
+                        late_shift_workers.append(worker)
+                    else:
+                        in_today_workers.append(worker)
+                    break
 
-            # Add worker data
-            for row in worker_data:
-                sheet.append(row)
+        logging.debug(f"Workers available today: {[worker.name for worker in in_today_workers]}")
+        logging.debug(f"Late shift workers: {[worker.name for worker in late_shift_workers]}")
 
-            # Save the workbook to memory
-            output = BytesIO()
-            workbook.save(output)
-            output.seek(0)
+        # Define starting roles
+        starting_roles = {
+            'Host': None,
+            'Dekit': None,
+            'Kit Up 1': None,
+            'Kit Up 2': None,
+            'Kit Up 3': None,
+            'Clip In 1': None,
+            'Clip In 2': None,
+            'Tree Trek 1': None,
+            'Tree Trek 2': None,
+            'Course Support 1': None,
+            'Course Support 2': None,
+            'Zip Top 1': None,
+            'Zip Top 2': None,
+            'Zip Ground': None,
+            'Rotate to Course 1': None,
+            'Mini Trek': None,
+            'ICA 1': None,
+            'ICA 2': None,
+            'ICA 3': None,
+            'ICA 4': None,
+        }
 
-            return send_file(
-                output,
-                as_attachment=True,
-                download_name='day_schedule.xlsx',
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
+        # Role priority
+        prioritized_roles = (
+            ['ICA 1', 'ICA 2', 'ICA 3', 'ICA 4'] +  # ICA roles first
+            ['Mini Trek'] +                         # Then Mini Trek
+            ['Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'Rotate to Course 1'] +  # Course
+            ['Tree Trek 1', 'Tree Trek 2'] +        # Tree Trek
+            ['Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host', 'Kit Up 1']  # Shed (Dekit last)
+        )
 
-        elif file_format == 'ods':
-            # Generate an .ods file
-            data = {"Sheet1": [["Name", "Roles", "Availability"]] + worker_data}
+        # Helper function to get eligible workers for a role
+        def get_eligible_workers(role):
+            if role.startswith('ICA'):
+                return [
+                    worker for worker in in_today_workers
+                    if 'ICA' in worker.roles and worker.name not in starting_roles.values()
+                ]
+            elif role == 'Mini Trek':
+                return [
+                    worker for worker in in_today_workers
+                    if 'MT' in worker.roles and worker.name not in starting_roles.values()
+                ]
+            elif role in ['Course Support 1', 'Rotate to Course 1']:
+                # Allow late-shift workers for these specific roles
+                return [
+                    worker for worker in (in_today_workers + late_shift_workers)
+                    if 'AATT' in worker.roles and worker.name not in starting_roles.values()
+                ]
+            elif role in ['Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground']:
+                return [
+                    worker for worker in in_today_workers
+                    if 'AATT' in worker.roles and worker.name not in starting_roles.values()
+                ]
+            elif role in ['Tree Trek 1', 'Tree Trek 2']:
+                return [
+                    worker for worker in in_today_workers
+                    if 'AATT' in worker.roles and worker.name not in starting_roles.values()
+                ]
+            else:  # Shed roles
+                return [
+                    worker for worker in (in_today_workers + late_shift_workers)
+                    if 'AATT' in worker.roles and worker.name not in starting_roles.values()
+                ]
 
-            output = BytesIO()
-            save_data(output, data)
-            output.seek(0)
 
-            return send_file(
-                output,
-                as_attachment=True,
-                download_name='day_schedule.ods',
-                mimetype='application/vnd.oasis.opendocument.spreadsheet'
-            )
+        # Assign roles based on priority
+        for role in prioritized_roles:
+            eligible_workers = get_eligible_workers(role)
+            if eligible_workers:
+                selected_worker = random.choice(eligible_workers)
+                starting_roles[role] = selected_worker.name
+                logging.info(f"Assigned {selected_worker.name} to {role}")
+            else:
+                logging.warning(f"Unfilled position: {role}")
 
-        else:
-            return jsonify({'error': 'Unsupported file format requested'}), 400
+
+        # Check for unfilled positions
+        for role, worker in starting_roles.items():
+            if worker is None:
+                logging.error(f"Unfilled position: {role}")
+                return jsonify({'error': f"Could not assign all roles. Missing: {role}"}), 500
+
+        # Log the final assignments
+        logging.info("Starting positions:")
+        for role, worker in starting_roles.items():
+            if worker:
+                logging.info(f"{role}: {worker}")
+            else:
+                logging.warning(f"{role}: Unfilled")
+
+        # Return starting positions
+        return jsonify({
+            'message': 'Starting positions assigned',
+            'starting_positions': starting_roles
+        }), 200
 
     except Exception as e:
         logging.error(f"Error generating schedule: {e}")
         return jsonify({'error': str(e)}), 500
+
 
 # API endpoint to create a worker
 @app.route("/workers", methods=["POST"])
@@ -188,65 +298,6 @@ def delete_worker(worker_id):
         return jsonify({"message": "Worker deleted successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# API to handle Excel/ODS upload and parsing
-@app.route('/upload-excel', methods=['POST'])
-def upload_excel():
-    try:
-        # Check if a file is uploaded
-        if 'file' not in request.files:
-            app.logger.warning("No file selected in the request.")
-            return jsonify({'error': 'No file provided'}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            app.logger.warning("No file selected in the request.")
-            return jsonify({'error': 'No selected file'}), 400
-
-        # Save the file temporarily
-        os.makedirs('temp', exist_ok=True)
-        temp_path = os.path.join('temp', file.filename)
-        file.save(temp_path)
-
-        # Determine the file format and open accordingly
-        rows = []
-        if temp_path.endswith('.xlsx'):
-            app.logger.info("Processing an .xlsx file.")
-            workbook = openpyxl.load_workbook(temp_path)
-            sheet = workbook.active
-
-            # Extract rows, converting time objects to strings
-            for row in sheet.iter_rows(min_row=2, values_only=True):  # Skip the header
-                processed_row = [
-                    cell.strftime("%H:%M:%S") if isinstance(cell, time) else cell
-                    for cell in row
-                ]
-                rows.append(processed_row)
-
-        elif temp_path.endswith('.ods'):
-            app.logger.info("Processing an .ods file.")
-            data = get_data(temp_path)
-            for row in data[list(data.keys())[0]]:  # Read the first sheet
-                processed_row = [
-                    cell.strftime("%H:%M:%S") if isinstance(cell, time) else cell
-                    for cell in row
-                ]
-                rows.append(processed_row)
-
-        else:
-            app.logger.error("Unsupported file format.")
-            return jsonify({'error': 'Unsupported file format. Only .xlsx and .ods are allowed.'}), 400
-
-        # Delete the temp file after processing
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-        app.logger.info("File processed successfully.")
-        return jsonify({'data': rows}), 200
-
-    except Exception as e:
-        app.logger.error(f"Error processing file: {e}")
-        return jsonify({'error': str(e)}), 500
 
 # Home route to confirm the app is running
 @app.route("/")
