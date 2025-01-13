@@ -115,122 +115,93 @@ def generate_schedule():
                 start = parser.parse(availability['start']).astimezone(timezone.utc)
                 end = parser.parse(availability['end']).astimezone(timezone.utc)
                 if start <= today <= end:
-                    if start.hour >= 10:
+                    if start.hour >= 10:  # Late-shift workers start at or after 10:00
                         late_shift_workers.append(worker)
-                    else:
+                    else:  # Early workers available before 10:00
                         in_today_workers.append(worker)
                     break
 
         logging.debug(f"Workers available today: {[worker.name for worker in in_today_workers]}")
         logging.debug(f"Late shift workers: {[worker.name for worker in late_shift_workers]}")
 
-        # Define starting roles
-        starting_roles = {
-            'Host': None,
-            'Dekit': None,
-            'Kit Up 1': None,
-            'Kit Up 2': None,
-            'Kit Up 3': None,
-            'Clip In 1': None,
-            'Clip In 2': None,
-            'Tree Trek 1': None,
-            'Tree Trek 2': None,
-            'Course Support 1': None,
-            'Course Support 2': None,
-            'Zip Top 1': None,
-            'Zip Top 2': None,
-            'Zip Ground': None,
-            'Rotate to Course 1': None,
-            'Mini Trek': None,
-            'ICA 1': None,
-            'ICA 2': None,
-            'ICA 3': None,
-            'ICA 4': None,
-        }
+        # Dynamically map roles based on the Excel file
+        workbook = openpyxl.load_workbook(filepath)
+        sheet = workbook.active
+        role_to_column = {}
+        header_row = 1  # Assuming the first row contains headers
 
-        # Assign workers to roles
+        for col in range(1, sheet.max_column + 1):
+            role = sheet.cell(row=header_row, column=col).value
+            if role:  # Skip empty cells
+                role_to_column[role.strip()] = col
+
+        logging.debug(f"Dynamically mapped roles: {role_to_column}")
+
+        # Define starting roles
+        valid_roles = {}
+
+        # Prioritized roles for assignment
         prioritized_roles = [
             'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4',
             'Mini Trek',
-            'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'Rotate to Course 1',
-            'Tree Trek 1', 'Tree Trek 2',
+            'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
+            'TREE TREK 1', 'TREE TREK 2',
             'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host', 'Kit Up 1'
         ]
 
+        restricted_roles_for_late_shift = {
+            'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4',
+            'Mini Trek',
+            'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground'
+        }
+
         def get_eligible_workers(role):
-            if role.startswith('ICA'):
-                return [worker for worker in in_today_workers if 'ICA' in worker.roles and worker.name not in starting_roles.values()]
+            """Determine eligible workers for a role."""
+            if role in restricted_roles_for_late_shift:
+                # Only consider early workers for restricted roles
+                eligible_workers = [worker for worker in in_today_workers if worker.name not in valid_roles.values()]
+            elif role.startswith('ICA'):
+                # ICA roles are handled with early workers only
+                eligible_workers = [worker for worker in in_today_workers if 'ICA' in worker.roles and worker.name not in valid_roles.values()]
             elif role == 'Mini Trek':
-                return [worker for worker in in_today_workers if 'MT' in worker.roles and worker.name not in starting_roles.values()]
-            elif role in ['Course Support 1', 'Rotate to Course 1']:
-                return [worker for worker in (in_today_workers + late_shift_workers) if 'AATT' in worker.roles and worker.name not in starting_roles.values()]
+                # Mini Trek is also restricted to early workers
+                eligible_workers = [worker for worker in in_today_workers if 'MT' in worker.roles and worker.name not in valid_roles.values()]
+            elif role in ['Course Support 1', 'rotate to course 1', 'TREE TREK 1', 'TREE TREK 2']:
+                # These roles can use both early and late-shift workers
+                eligible_workers = [worker for worker in (in_today_workers + late_shift_workers) if 'AATT' in worker.roles and worker.name not in valid_roles.values()]
             else:
-                return [worker for worker in (in_today_workers + late_shift_workers) if 'AATT' in worker.roles and worker.name not in starting_roles.values()]
+                # Other roles, fallback to late-shift workers if no early workers are available
+                eligible_workers = [worker for worker in in_today_workers if 'AATT' in worker.roles and worker.name not in valid_roles.values()]
+                if not eligible_workers:  # Fallback to late-shift workers
+                    eligible_workers = [worker for worker in late_shift_workers if 'AATT' in worker.roles and worker.name not in valid_roles.values()]
+            return eligible_workers
 
         for role in prioritized_roles:
-            eligible_workers = get_eligible_workers(role)
-            if eligible_workers:
-                selected_worker = random.choice(eligible_workers)
-                starting_roles[role] = selected_worker.name
-                logging.info(f"Assigned {selected_worker.name} to {role}")
-            else:
-                logging.warning(f"Unfilled position: {role}")
+            if role in role_to_column:  # Only process roles present in the Excel file
+                eligible_workers = get_eligible_workers(role)
+                if eligible_workers:
+                    selected_worker = random.choice(eligible_workers)
+                    valid_roles[role] = selected_worker.name
+                    logging.info(f"Assigned {selected_worker.name} to {role}")
+                else:
+                    logging.warning(f"No eligible workers for {role}, skipping.")
 
-        # Load the Excel file and populate it
-        if filepath.endswith('.xlsx'):
-            try:
-                logging.debug("Attempting to load Excel file.")
-                workbook = openpyxl.load_workbook(filepath)
-                sheet = workbook.active
+        # Write assigned workers to the Excel file
+        nine_am_row = 2  
+        for role, column in role_to_column.items():
+            assigned_worker = valid_roles.get(role)
+            if assigned_worker:
+                sheet.cell(row=nine_am_row, column=column).value = assigned_worker
 
-                # Map roles to columns
-                role_to_column = {
-                    'Host': 2,
-                    'Dekit': 3,
-                    'Kit Up 1': 4,
-                    'Kit Up 2': 5,
-                    'Kit Up 3': 6,
-                    'Clip In 1': 7,
-                    'Clip In 2': 8,
-                    'Tree Trek 1': 10,  # Skip I (column 9)
-                    'Tree Trek 2': 11,
-                    'Course Support 1': 13,  # Skip L (column 12)
-                    'Course Support 2': 14,
-                    'Zip Top 1': 15,
-                    'Zip Top 2': 16,
-                    'Zip Ground': 17,
-                    'Rotate to Course 1': 18,
-                    'Mini Trek': 20,  # Skip S (column 19)
-                    'ICA 1': 22,  # Skip U (column 21)
-                    'ICA 2': 23,
-                    'ICA 3': 24,
-                    'ICA 4': 25,
-                }
-
-
-                # Write assigned workers to the 9:00 row (adjust row number as needed)
-                nine_am_row = 2  # Update this to match the row for 9:00 in your file
-                for role, column in role_to_column.items():
-                    assigned_worker = starting_roles.get(role)
-                    if assigned_worker:
-                        sheet.cell(row=nine_am_row, column=column).value = assigned_worker
-
-                # Save to memory and send back
-                output = BytesIO()
-                workbook.save(output)
-                output.seek(0)
-                return send_file(output, as_attachment=True, download_name="day_schedule.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            except Exception as excel_error:
-                logging.error(f"Error processing Excel file: {excel_error}")
-                raise excel_error
-        else:
-            return jsonify({'error': 'Unsupported file format'}), 400
+        # Save to memory and send back
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        return send_file(output, as_attachment=True, download_name="day_schedule.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     except Exception as e:
         logging.error(f"Error generating schedule: {e}")
         return jsonify({'error': str(e)}), 500
-
-    
 
 def print_excel_file(filepath):
     try:
