@@ -85,7 +85,7 @@ def list_templates():
         return jsonify({'error': str(e)}), 500
 
 
-# API endpoint to upload Excel/ODS files
+# API endpoint to generate the schedule and save to Excel
 @app.route('/generate-schedule', methods=['POST'])
 def generate_schedule():
     try:
@@ -98,6 +98,8 @@ def generate_schedule():
         logging.debug(f"Filepath: {filepath}")
         if not os.path.exists(filepath):
             return jsonify({'error': 'Selected template not found'}), 404
+
+        print_excel_file(filepath)
 
         # Fetch all workers from the database
         workers = Worker.query.all()
@@ -146,51 +148,25 @@ def generate_schedule():
             'ICA 4': None,
         }
 
-        # Role priority
-        prioritized_roles = (
-            ['ICA 1', 'ICA 2', 'ICA 3', 'ICA 4'] +  # ICA roles first
-            ['Mini Trek'] +                         # Then Mini Trek
-            ['Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'Rotate to Course 1'] +  # Course
-            ['Tree Trek 1', 'Tree Trek 2'] +        # Tree Trek
-            ['Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host', 'Kit Up 1']  # Shed (Dekit last)
-        )
+        # Assign workers to roles
+        prioritized_roles = [
+            'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4',
+            'Mini Trek',
+            'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'Rotate to Course 1',
+            'Tree Trek 1', 'Tree Trek 2',
+            'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host', 'Kit Up 1'
+        ]
 
-        # Helper function to get eligible workers for a role
         def get_eligible_workers(role):
             if role.startswith('ICA'):
-                return [
-                    worker for worker in in_today_workers
-                    if 'ICA' in worker.roles and worker.name not in starting_roles.values()
-                ]
+                return [worker for worker in in_today_workers if 'ICA' in worker.roles and worker.name not in starting_roles.values()]
             elif role == 'Mini Trek':
-                return [
-                    worker for worker in in_today_workers
-                    if 'MT' in worker.roles and worker.name not in starting_roles.values()
-                ]
+                return [worker for worker in in_today_workers if 'MT' in worker.roles and worker.name not in starting_roles.values()]
             elif role in ['Course Support 1', 'Rotate to Course 1']:
-                # Allow late-shift workers for these specific roles
-                return [
-                    worker for worker in (in_today_workers + late_shift_workers)
-                    if 'AATT' in worker.roles and worker.name not in starting_roles.values()
-                ]
-            elif role in ['Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground']:
-                return [
-                    worker for worker in in_today_workers
-                    if 'AATT' in worker.roles and worker.name not in starting_roles.values()
-                ]
-            elif role in ['Tree Trek 1', 'Tree Trek 2']:
-                return [
-                    worker for worker in in_today_workers
-                    if 'AATT' in worker.roles and worker.name not in starting_roles.values()
-                ]
-            else:  # Shed roles
-                return [
-                    worker for worker in (in_today_workers + late_shift_workers)
-                    if 'AATT' in worker.roles and worker.name not in starting_roles.values()
-                ]
+                return [worker for worker in (in_today_workers + late_shift_workers) if 'AATT' in worker.roles and worker.name not in starting_roles.values()]
+            else:
+                return [worker for worker in (in_today_workers + late_shift_workers) if 'AATT' in worker.roles and worker.name not in starting_roles.values()]
 
-
-        # Assign roles based on priority
         for role in prioritized_roles:
             eligible_workers = get_eligible_workers(role)
             if eligible_workers:
@@ -200,30 +176,81 @@ def generate_schedule():
             else:
                 logging.warning(f"Unfilled position: {role}")
 
+        # Load the Excel file and populate it
+        if filepath.endswith('.xlsx'):
+            try:
+                logging.debug("Attempting to load Excel file.")
+                workbook = openpyxl.load_workbook(filepath)
+                sheet = workbook.active
 
-        # Check for unfilled positions
-        for role, worker in starting_roles.items():
-            if worker is None:
-                logging.error(f"Unfilled position: {role}")
-                return jsonify({'error': f"Could not assign all roles. Missing: {role}"}), 500
+                # Map roles to columns
+                role_to_column = {
+                    'Host': 2,
+                    'Dekit': 3,
+                    'Kit Up 1': 4,
+                    'Kit Up 2': 5,
+                    'Kit Up 3': 6,
+                    'Clip In 1': 7,
+                    'Clip In 2': 8,
+                    'Tree Trek 1': 10,  # Skip I (column 9)
+                    'Tree Trek 2': 11,
+                    'Course Support 1': 13,  # Skip L (column 12)
+                    'Course Support 2': 14,
+                    'Zip Top 1': 15,
+                    'Zip Top 2': 16,
+                    'Zip Ground': 17,
+                    'Rotate to Course 1': 18,
+                    'Mini Trek': 20,  # Skip S (column 19)
+                    'ICA 1': 22,  # Skip U (column 21)
+                    'ICA 2': 23,
+                    'ICA 3': 24,
+                    'ICA 4': 25,
+                }
 
-        # Log the final assignments
-        logging.info("Starting positions:")
-        for role, worker in starting_roles.items():
-            if worker:
-                logging.info(f"{role}: {worker}")
-            else:
-                logging.warning(f"{role}: Unfilled")
 
-        # Return starting positions
-        return jsonify({
-            'message': 'Starting positions assigned',
-            'starting_positions': starting_roles
-        }), 200
+                # Write assigned workers to the 9:00 row (adjust row number as needed)
+                nine_am_row = 2  # Update this to match the row for 9:00 in your file
+                for role, column in role_to_column.items():
+                    assigned_worker = starting_roles.get(role)
+                    if assigned_worker:
+                        sheet.cell(row=nine_am_row, column=column).value = assigned_worker
+
+                # Save to memory and send back
+                output = BytesIO()
+                workbook.save(output)
+                output.seek(0)
+                return send_file(output, as_attachment=True, download_name="day_schedule.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            except Exception as excel_error:
+                logging.error(f"Error processing Excel file: {excel_error}")
+                raise excel_error
+        else:
+            return jsonify({'error': 'Unsupported file format'}), 400
 
     except Exception as e:
         logging.error(f"Error generating schedule: {e}")
         return jsonify({'error': str(e)}), 500
+
+    
+
+def print_excel_file(filepath):
+    try:
+        logging.debug("Attempting to load Excel file for inspection.")
+        workbook = openpyxl.load_workbook(filepath)
+        sheet = workbook.active
+
+        logging.info("Excel File Contents:")
+        for row in sheet.iter_rows(values_only=True):
+            logging.info(row)
+
+        # Print merged cell ranges
+        logging.info("Merged Cell Ranges:")
+        for merged_range in sheet.merged_cells.ranges:
+            logging.info(f"Range: {merged_range}, Min Row: {merged_range.min_row}, Max Row: {merged_range.max_row}, "
+                         f"Min Col: {merged_range.min_col}, Max Col: {merged_range.max_col}")
+
+    except Exception as e:
+        logging.error(f"Error reading Excel file: {e}")
+
 
 
 # API endpoint to create a worker

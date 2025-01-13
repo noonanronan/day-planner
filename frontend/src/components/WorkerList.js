@@ -139,6 +139,7 @@ const WorkerList = () => {
         return availability.some((range) => {
             const start = parseISO(range.start);
             const end = parseISO(range.end);
+    
             return (
                 isValid(start) &&
                 isValid(end) &&
@@ -146,6 +147,9 @@ const WorkerList = () => {
             );
         });
     };
+    
+    
+    
 
     const sortedWorkers = [...workers].sort((a, b) => {
         const aAvailableToday = isWorkerAvailableToday(a.availability);
