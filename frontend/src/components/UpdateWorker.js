@@ -6,6 +6,11 @@ import { getAllWorkers, updateWorker } from "../services/workerService";
 
 const predefinedRoles = ["AATT", "MT", "ICA"]; // predefined roles
 
+const predefinedTimes = [
+    { label: "8:00 AM - 4:00 PM", start: new Date().setHours(8, 0), end: new Date().setHours(16, 0) },
+    { label: "10:00 AM - 7:00 PM", start: new Date().setHours(10, 0), end: new Date().setHours(19, 0) },
+];
+
 const UpdateWorker = () => {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -20,19 +25,19 @@ const UpdateWorker = () => {
                 const worker = data.workers.find((worker) => worker.id === parseInt(id));
                 if (worker) {
                     setName(worker.name);
-                    setSelectedRoles(worker.roles);
+                    setSelectedRoles(worker.roles); // Set selected roles
                     setAvailability(
                         worker.availability.map((range) => ({
-                            start: new Date(range.start),
+                            start: new Date(range.start), // Convert to Date objects
                             end: new Date(range.end),
                         }))
-                    );
+                    ); // Set availability
                 }
             } catch (error) {
                 console.error("Error fetching worker:", error);
             }
         };
-    
+
         fetchWorker();
     }, [id]);
 
@@ -48,12 +53,16 @@ const UpdateWorker = () => {
         setAvailability([...availability, { start: null, end: null }]);
     };
 
+    const handleAddPredefinedTime = (time) => {
+        setAvailability([...availability, { start: new Date(time.start), end: new Date(time.end) }]);
+    };
+
     const handleRemoveAvailability = (index) => {
         setAvailability(availability.filter((_, i) => i !== index));
     };
 
     const handleDateChange = (index, type, date) => {
-        if (date instanceof Date && !isNaN(date)) { // Ensure the date is valid
+        if (date instanceof Date && !isNaN(date)) {
             const updatedAvailability = [...availability];
             updatedAvailability[index][type] = date;
             setAvailability(updatedAvailability);
@@ -64,26 +73,25 @@ const UpdateWorker = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-    
+
         if (availability.some(({ start, end }) => !start || !end)) {
             alert("Please fill out all availability fields.");
             return;
         }
-    
+
         try {
             const updatedWorker = {
                 name,
                 roles: selectedRoles,
-                availability,
+                availability, // Already formatted as an array of date ranges
             };
-            await updateWorker(id, updatedWorker); // Ensure `id` and `updatedWorker` are correct
-            navigate("/"); // Redirect back to the worker list
+            await updateWorker(id, updatedWorker);
+            navigate("/");
         } catch (error) {
             console.error("Error updating worker:", error);
             alert("Failed to update worker. Please check your input format.");
         }
     };
-    
 
     return (
         <div className="container mt-4">
@@ -120,6 +128,18 @@ const UpdateWorker = () => {
                 </div>
                 <div className="mb-3">
                     <label className="form-label">Availability</label>
+                    <div className="mb-2">
+                        {predefinedTimes.map((time, index) => (
+                            <button
+                                key={index}
+                                type="button"
+                                className="btn btn-outline-primary btn-sm me-2"
+                                onClick={() => handleAddPredefinedTime(time)}
+                            >
+                                {time.label}
+                            </button>
+                        ))}
+                    </div>
                     {availability.map((range, index) => (
                         <div key={index} className="d-flex align-items-center mb-2">
                             <DatePicker
@@ -132,8 +152,6 @@ const UpdateWorker = () => {
                                 timeFormat="HH:mm"
                                 timeIntervals={30}
                                 timeCaption="Time"
-                                minTime={new Date(new Date().setHours(7, 0, 0, 0))} // Set to 7:00 AM
-                                maxTime={new Date(new Date().setHours(20, 0, 0, 0))} // Set to 8:00 PM
                                 dateFormat="Pp"
                                 placeholderText="Start Time"
                                 className="form-control me-2"
@@ -148,14 +166,10 @@ const UpdateWorker = () => {
                                 timeFormat="HH:mm"
                                 timeIntervals={30}
                                 timeCaption="Time"
-                                minTime={new Date(new Date().setHours(7, 0, 0, 0))} // Set to 7:00 AM
-                                maxTime={new Date(new Date().setHours(20, 0, 0, 0))} // Set to 8:00 PM
                                 dateFormat="Pp"
                                 placeholderText="End Time"
                                 className="form-control me-2"
                             />
-
-
                             <button
                                 type="button"
                                 className="btn btn-danger btn-sm"
@@ -165,12 +179,8 @@ const UpdateWorker = () => {
                             </button>
                         </div>
                     ))}
-                    <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={handleAddAvailability}
-                    >
-                        Add Availability
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddAvailability}>
+                        Add Custom Time
                     </button>
                 </div>
                 <button type="submit" className="btn btn-primary">Update</button>

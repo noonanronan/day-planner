@@ -6,6 +6,11 @@ import { createWorker } from "../services/workerService";
 
 const predefinedRoles = ["AATT", "MT", "ICA"]; // Predefined roles
 
+const predefinedTimes = [
+    { label: "8:00 AM - 4:00 PM", start: new Date().setHours(8, 0), end: new Date().setHours(16, 0) },
+    { label: "10:00 AM - 7:00 PM", start: new Date().setHours(10, 0), end: new Date().setHours(19, 0) },
+];
+
 const CreateWorker = () => {
     const [name, setName] = useState("");
     const [selectedRoles, setSelectedRoles] = useState([]);
@@ -14,9 +19,7 @@ const CreateWorker = () => {
 
     const handleRoleChange = (role) => {
         setSelectedRoles((prevRoles) =>
-            prevRoles.includes(role)
-                ? prevRoles.filter((r) => r !== role)
-                : [...prevRoles, role]
+            prevRoles.includes(role) ? prevRoles.filter((r) => r !== role) : [...prevRoles, role]
         );
     };
 
@@ -29,7 +32,7 @@ const CreateWorker = () => {
     };
 
     const handleDateChange = (index, type, date) => {
-        if (date instanceof Date && !isNaN(date)) { // Ensure the date is valid
+        if (date instanceof Date && !isNaN(date)) {
             const updatedAvailability = [...availability];
             updatedAvailability[index][type] = date;
             setAvailability(updatedAvailability);
@@ -37,7 +40,10 @@ const CreateWorker = () => {
             console.error("Invalid date:", date);
         }
     };
-    
+
+    const handleAddPredefinedTime = (time) => {
+        setAvailability([...availability, { start: new Date(time.start), end: new Date(time.end) }]);
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -48,11 +54,7 @@ const CreateWorker = () => {
         }
 
         try {
-            const workerData = {
-                name,
-                roles: selectedRoles,
-                availability,
-            };
+            const workerData = { name, roles: selectedRoles, availability };
             await createWorker(workerData);
             navigate("/");
         } catch (error) {
@@ -96,6 +98,18 @@ const CreateWorker = () => {
                 </div>
                 <div className="mb-3">
                     <label className="form-label">Availability</label>
+                    <div className="mb-2">
+                        {predefinedTimes.map((time, index) => (
+                            <button
+                                key={index}
+                                type="button"
+                                className="btn btn-outline-primary btn-sm me-2"
+                                onClick={() => handleAddPredefinedTime(time)}
+                            >
+                                {time.label}
+                            </button>
+                        ))}
+                    </div>
                     {availability.map((range, index) => (
                         <div key={index} className="d-flex align-items-center mb-2">
                             <DatePicker
@@ -108,8 +122,6 @@ const CreateWorker = () => {
                                 timeFormat="HH:mm"
                                 timeIntervals={30}
                                 timeCaption="Time"
-                                minTime={new Date(new Date().setHours(7, 0, 0, 0))} // Set to 7:00 AM
-                                maxTime={new Date(new Date().setHours(20, 0, 0, 0))} // Set to 8:00 PM
                                 dateFormat="Pp"
                                 placeholderText="Start Time"
                                 className="form-control me-2"
@@ -124,14 +136,10 @@ const CreateWorker = () => {
                                 timeFormat="HH:mm"
                                 timeIntervals={30}
                                 timeCaption="Time"
-                                minTime={new Date(new Date().setHours(7, 0, 0, 0))} // Set to 7:00 AM
-                                maxTime={new Date(new Date().setHours(20, 0, 0, 0))} // Set to 8:00 PM
                                 dateFormat="Pp"
                                 placeholderText="End Time"
                                 className="form-control me-2"
                             />
-
-
                             <button
                                 type="button"
                                 className="btn btn-danger btn-sm"
@@ -141,12 +149,8 @@ const CreateWorker = () => {
                             </button>
                         </div>
                     ))}
-                    <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={handleAddAvailability}
-                    >
-                        Add Availability
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddAvailability}>
+                        Add Custom Time
                     </button>
                 </div>
                 <button type="submit" className="btn btn-success">Create</button>

@@ -10,6 +10,7 @@ import openpyxl
 import os
 import logging
 import random
+from random import choice
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
@@ -99,8 +100,6 @@ def generate_schedule():
         if not os.path.exists(filepath):
             return jsonify({'error': 'Selected template not found'}), 404
 
-        print_excel_file(filepath)
-
         # Fetch all workers from the database
         workers = Worker.query.all()
         today = datetime.now(tz=timezone.utc)
@@ -137,9 +136,6 @@ def generate_schedule():
 
         logging.debug(f"Dynamically mapped roles: {role_to_column}")
 
-        # Define starting roles
-        valid_roles = {}
-
         # Prioritized roles for assignment
         prioritized_roles = [
             'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4',
@@ -149,49 +145,45 @@ def generate_schedule():
             'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host', 'Kit Up 1'
         ]
 
-        restricted_roles_for_late_shift = {
-            'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4',
-            'Mini Trek',
-            'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground'
+        # Rotation and swap mappings
+        rotation_roles = ['Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1']
+        swap_map = {
+            'Kit Up 2': 'Clip In 1',
+            'Clip In 1': 'Kit Up 2',
+            'Kit Up 3': 'Clip In 2',
+            'Clip In 2': 'Kit Up 3'
         }
 
-        def get_eligible_workers(role):
-            """Determine eligible workers for a role."""
-            if role in restricted_roles_for_late_shift:
-                # Only consider early workers for restricted roles
-                eligible_workers = [worker for worker in in_today_workers if worker.name not in valid_roles.values()]
-            elif role.startswith('ICA'):
-                # ICA roles are handled with early workers only
-                eligible_workers = [worker for worker in in_today_workers if 'ICA' in worker.roles and worker.name not in valid_roles.values()]
-            elif role == 'Mini Trek':
-                # Mini Trek is also restricted to early workers
-                eligible_workers = [worker for worker in in_today_workers if 'MT' in worker.roles and worker.name not in valid_roles.values()]
-            elif role in ['Course Support 1', 'rotate to course 1', 'TREE TREK 1', 'TREE TREK 2']:
-                # These roles can use both early and late-shift workers
-                eligible_workers = [worker for worker in (in_today_workers + late_shift_workers) if 'AATT' in worker.roles and worker.name not in valid_roles.values()]
-            else:
-                # Other roles, fallback to late-shift workers if no early workers are available
-                eligible_workers = [worker for worker in in_today_workers if 'AATT' in worker.roles and worker.name not in valid_roles.values()]
-                if not eligible_workers:  # Fallback to late-shift workers
-                    eligible_workers = [worker for worker in late_shift_workers if 'AATT' in worker.roles and worker.name not in valid_roles.values()]
-            return eligible_workers
+        # Extend the schedule to lunch
+        nine_am_row = 2  # Starting at 9:00
+        lunch_row = 8  # Adjust based on the lunch time row
+        swap_time_row = 6  # Swap occurs at 11:00
 
-        for role in prioritized_roles:
-            if role in role_to_column:  # Only process roles present in the Excel file
-                eligible_workers = get_eligible_workers(role)
-                if eligible_workers:
-                    selected_worker = random.choice(eligible_workers)
-                    valid_roles[role] = selected_worker.name
-                    logging.info(f"Assigned {selected_worker.name} to {role}")
-                else:
-                    logging.warning(f"No eligible workers for {role}, skipping.")
+        # Start logging schedule positions
+        positions_log = {}
 
-        # Write assigned workers to the Excel file
-        nine_am_row = 2  
         for role, column in role_to_column.items():
             assigned_worker = valid_roles.get(role)
             if assigned_worker:
-                sheet.cell(row=nine_am_row, column=column).value = assigned_worker
+                positions_log[role] = [assigned_worker]  # Initialize log for role
+
+                for row in range(nine_am_row, lunch_row + 1):
+                    if row >= swap_time_row and role in swap_map:
+                        # Swap logic for specific roles
+                        assigned_worker = valid_roles.get(swap_map[role], assigned_worker)
+                    elif row > nine_am_row and role in rotation_roles:
+                        # Rotation logic
+                        current_index = rotation_roles.index(role)
+                        next_index = (current_index + 1) % len(rotation_roles)
+                        assigned_worker = valid_roles.get(rotation_roles[next_index], assigned_worker)
+
+                    # Write the worker to the Excel file and log their position
+                    sheet.cell(row=row, column=column).value = assigned_worker
+                    positions_log[role].append(assigned_worker)
+
+        # Log the schedule for all roles
+        for role, workers in positions_log.items():
+            logging.info(f"{role}: {', '.join(workers)}")
 
         # Save to memory and send back
         output = BytesIO()
@@ -203,6 +195,10 @@ def generate_schedule():
         logging.error(f"Error generating schedule: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+
+
+# Remove when not needed
 def print_excel_file(filepath):
     try:
         logging.debug("Attempting to load Excel file for inspection.")
