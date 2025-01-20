@@ -105,20 +105,33 @@ def generate_schedule():
         today = datetime.now(tz=timezone.utc)
         logging.debug(f"Today's UTC date: {today}")
 
+        # Define role-to-training mapping
+        role_to_training = {
+            'KITUP': ['Host', 'Dekit', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2'],
+            'AATT': ['TREE TREK 1', 'TREE TREK 2', 'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1'],
+            'MT': ['Mini Trek'],
+            'ICA': ['ICA 1', 'ICA 2', 'ICA 3', 'ICA 4']
+        }
+
         # Separate workers into available and late-shift workers
         in_today_workers = []
         late_shift_workers = []
 
         for worker in workers:
             for availability in worker.availability:
-                start = parser.parse(availability['start']).astimezone(timezone.utc)
-                end = parser.parse(availability['end']).astimezone(timezone.utc)
-                if start <= today <= end:
-                    if start.hour >= 10:  # Late-shift workers start at or after 10:00
-                        late_shift_workers.append(worker)
-                    else:  # Early workers available before 10:00
-                        in_today_workers.append(worker)
-                    break
+                try:
+                    start = parser.parse(availability['start']).astimezone(timezone.utc)
+                    end = parser.parse(availability['end']).astimezone(timezone.utc)
+                    logging.debug(f"Worker {worker.name} availability: start={start}, end={end}")
+
+                    if start <= today <= end:
+                        if start.hour >= 10:  # Late-shift workers start at or after 10:00
+                            late_shift_workers.append(worker)
+                        else:  # Early workers available before 10:00
+                            in_today_workers.append(worker)
+                        break
+                except Exception as e:
+                    logging.error(f"Error parsing availability for worker {worker.name}: {e}")
 
         logging.debug(f"Workers available today: {[worker.name for worker in in_today_workers]}")
         logging.debug(f"Late shift workers: {[worker.name for worker in late_shift_workers]}")
@@ -142,50 +155,113 @@ def generate_schedule():
             'Mini Trek',
             'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
             'TREE TREK 1', 'TREE TREK 2',
-            'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host', 'Kit Up 1'
+            'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host'
         ]
 
-        # Rotation and swap mappings
-        rotation_roles = ['Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1']
-        swap_map = {
-            'Kit Up 2': 'Clip In 1',
-            'Clip In 1': 'Kit Up 2',
-            'Kit Up 3': 'Clip In 2',
-            'Clip In 2': 'Kit Up 3'
+        # Role restrictions for late-shift workers
+        restricted_roles_for_late_shift = {
+            'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4'
         }
 
-        # Extend the schedule to lunch
-        nine_am_row = 2  # Starting at 9:00
-        lunch_row = 8  # Adjust based on the lunch time row
-        swap_time_row = 6  # Swap occurs at 11:00
+        valid_roles = {}
+        used_workers = set()
 
-        # Start logging schedule positions
-        positions_log = {}
+        def get_eligible_workers(role):
+            if role in restricted_roles_for_late_shift:
+                # Only early workers for restricted roles
+                return [worker for worker in in_today_workers if worker.name not in used_workers and role in role_to_training.get('ICA', []) and 'ICA' in worker.roles]
+            elif role.startswith('ICA'):
+                # Workers trained in ICA
+                return [worker for worker in in_today_workers if worker.name not in used_workers and 'ICA' in worker.roles]
+            elif role == 'Mini Trek':
+                # Workers trained in Mini Trek
+                return [worker for worker in in_today_workers if worker.name not in used_workers and 'MT' in worker.roles]
+            elif role in ['Course Support 1', 'rotate to course 1', 'TREE TREK 1', 'TREE TREK 2']:
+                # AATT-trained workers
+                return [worker for worker in (in_today_workers + late_shift_workers) if worker.name not in used_workers and 'AATT' in worker.roles]
+            else:
+                # Host, Dekit, Kit Up roles
+                eligible = [worker for worker in in_today_workers if worker.name not in used_workers and 'KITUP' in worker.roles]
+                if not eligible:
+                    eligible = [worker for worker in late_shift_workers if worker.name not in used_workers and 'KITUP' in worker.roles]
+                return eligible
 
+
+        # Assign workers to the first time slot (9:00-9:30)
+        for role in prioritized_roles:
+            if role in role_to_column:
+                eligible_workers = get_eligible_workers(role)
+                if eligible_workers:
+                    selected_worker = choice(eligible_workers)
+                    valid_roles[role] = selected_worker.name
+                    used_workers.add(selected_worker.name)
+                    logging.info(f"Assigned {selected_worker.name} to {role}")
+                else:
+                    logging.warning(f"No eligible workers for {role}, skipping.")
+
+        # Write the assignments for the first time slot (9:00-9:30) to the Excel file
         for role, column in role_to_column.items():
             assigned_worker = valid_roles.get(role)
             if assigned_worker:
-                positions_log[role] = [assigned_worker]  # Initialize log for role
+                sheet.cell(row=2, column=column).value = assigned_worker
 
-                for row in range(nine_am_row, lunch_row + 1):
-                    if row >= swap_time_row and role in swap_map:
-                        # Swap logic for specific roles
-                        assigned_worker = valid_roles.get(swap_map[role], assigned_worker)
-                    elif row > nine_am_row and role in rotation_roles:
-                        # Rotation logic
-                        current_index = rotation_roles.index(role)
-                        next_index = (current_index + 1) % len(rotation_roles)
-                        assigned_worker = valid_roles.get(rotation_roles[next_index], assigned_worker)
+        # Identify spare workers
+        assigned_worker_names = set(valid_roles.values())
+        spare_workers = [
+            worker.name for worker in in_today_workers + late_shift_workers
+            if worker.name not in assigned_worker_names
+        ]
 
-                    # Write the worker to the Excel file and log their position
-                    sheet.cell(row=row, column=column).value = assigned_worker
-                    positions_log[role].append(assigned_worker)
+        if spare_workers:
+            logging.info(f"Spare workers: {spare_workers}")
+        else:
+            logging.info("No spare workers.")
 
-        # Log the schedule for all roles
-        for role, workers in positions_log.items():
-            logging.info(f"{role}: {', '.join(workers)}")
+        # Fill Shed (Host, Dekit, Kit Up 1), Tree Trek, Mini Trek, and ICA roles for all time slots till lunch
+        lunch_slots = [3, 4, 5, 6, 7, 8]  # Rows corresponding to 9:30, 10:00, ..., 12:00-12:45
+        for slot_row in lunch_slots:
+            for role in ['Host', 'Dekit', 'Kit Up 1', 'TREE TREK 1', 'TREE TREK 2', 'Mini Trek', 'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4']:
+                column = role_to_column.get(role)
+                if column:
+                    sheet.cell(row=slot_row, column=column).value = valid_roles.get(role)
 
-        # Save to memory and send back
+        # Handle Kit Up 2, Kit Up 3, Clip In 1, and Clip In 2
+        for slot_row in lunch_slots:
+            if slot_row == 5:  # 10:30 row
+                # Swap Kit Up 2 with Clip In 1
+                temp_kit_up_2 = valid_roles.get('Kit Up 2')
+                temp_kit_up_3 = valid_roles.get('Kit Up 3')
+                valid_roles['Kit Up 2'], valid_roles['Clip In 1'] = valid_roles.get('Clip In 1'), temp_kit_up_2
+                valid_roles['Kit Up 3'], valid_roles['Clip In 2'] = valid_roles.get('Clip In 2'), temp_kit_up_3
+
+            # Assign updated roles for Kit Up 2, Kit Up 3, Clip In 1, and Clip In 2
+            for role in ['Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2']:
+                column = role_to_column.get(role)
+                if column:
+                    sheet.cell(row=slot_row, column=column).value = valid_roles.get(role)
+
+        # Handle Course role rotations till lunch
+        course_roles = [
+            'Course Support 1', 'Course Support 2', 'Zip Top 1',
+            'Zip Top 2', 'Zip Ground', 'rotate to course 1'
+        ]
+
+        # Assign initial workers to course roles (9:00-9:30)
+        course_workers = [valid_roles.get(role) for role in course_roles]
+
+        # Rotate course roles for each subsequent time slot until lunch
+        for slot_row in lunch_slots:
+            # Rotate workers: Last worker moves to the first position
+            course_workers = course_workers[-1:] + course_workers[:-1]
+
+            # Assign rotated workers to their roles for this time slot
+            for role, worker in zip(course_roles, course_workers):
+                column = role_to_column.get(role)
+                if column:
+                    sheet.cell(row=slot_row, column=column).value = worker
+
+
+        # Save and send the Excel file
         output = BytesIO()
         workbook.save(output)
         output.seek(0)
@@ -194,7 +270,6 @@ def generate_schedule():
     except Exception as e:
         logging.error(f"Error generating schedule: {e}")
         return jsonify({'error': str(e)}), 500
-
 
 
 
@@ -261,9 +336,23 @@ def update_worker(worker_id):
             return jsonify({"error": f"No worker found with ID {worker_id}"}), 404
 
         data = request.get_json()
+
+        # Validate and update name
         worker.name = data.get("name", worker.name)
+
+        # Validate and update roles
         worker.roles = data.get("roles", worker.roles)
-        worker.availability = data.get("availability", worker.availability)
+
+        # Validate and update availability
+        if "availability" in data:
+            # Ensure availability times are ISO 8601 strings
+            worker.availability = [
+                {
+                    "start": parser.parse(a["start"]).isoformat(),
+                    "end": parser.parse(a["end"]).isoformat(),
+                }
+                for a in data["availability"]
+            ]
 
         db.session.commit()
 
@@ -271,12 +360,14 @@ def update_worker(worker_id):
             "id": worker.id,
             "name": worker.name,
             "roles": worker.roles,
-            "availability": worker.availability
+            "availability": worker.availability,
         }
 
         return jsonify({"message": "Worker updated successfully", "worker": updated_worker_data}), 200
     except Exception as e:
+        logging.error(f"Error updating worker {worker_id}: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 # API endpoint to delete a worker by ID
 @app.route("/workers/<int:worker_id>", methods=["DELETE"])
