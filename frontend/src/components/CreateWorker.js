@@ -4,7 +4,8 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { createWorker } from "../services/workerService";
 
-const predefinedRoles = ["AATT", "MT", "ICA"]; // Predefined roles
+const predefinedRoles = ["KITUP", "AATT", "MT", "ICA"];
+
 
 const predefinedTimes = [
     { label: "8:00 AM - 4:00 PM", start: new Date().setHours(8, 0), end: new Date().setHours(16, 0) },
