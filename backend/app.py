@@ -133,8 +133,9 @@ def generate_schedule():
                 except Exception as e:
                     logging.error(f"Error parsing availability for worker {worker.name}: {e}")
 
-        logging.debug(f"Workers available today: {[worker.name for worker in in_today_workers]}")
-        logging.debug(f"Late shift workers: {[worker.name for worker in late_shift_workers]}")
+        logging.debug(f"Final In Today Workers: {[worker.name for worker in in_today_workers]}")
+        logging.debug(f"Final Late Shift Workers: {[worker.name for worker in late_shift_workers]}")
+
 
         # Dynamically map roles based on the Excel file
         workbook = openpyxl.load_workbook(filepath)
@@ -167,27 +168,38 @@ def generate_schedule():
         used_workers = set()
 
         def get_eligible_workers(role):
-            if role in restricted_roles_for_late_shift:
-                # Only early workers for restricted roles
-                return [worker for worker in in_today_workers if worker.name not in used_workers and role in role_to_training.get('ICA', []) and 'ICA' in worker.roles]
-            elif role.startswith('ICA'):
-                # Workers trained in ICA
-                return [worker for worker in in_today_workers if worker.name not in used_workers and 'ICA' in worker.roles]
-            elif role == 'Mini Trek':
+            if role in role_to_training['KITUP']:
+                # Workers trained in KITUP
+                return [
+                    worker for worker in (in_today_workers + late_shift_workers)
+                    if worker.name not in used_workers and 'KITUP' in worker.roles
+                ]
+            elif role in role_to_training['AATT']:
+                # Workers trained in AATT
+                return [
+                    worker for worker in (in_today_workers + late_shift_workers)
+                    if worker.name not in used_workers and 'AATT' in worker.roles
+                ]
+            elif role in role_to_training['MT']:
                 # Workers trained in Mini Trek
-                return [worker for worker in in_today_workers if worker.name not in used_workers and 'MT' in worker.roles]
-            elif role in ['Course Support 1', 'rotate to course 1', 'TREE TREK 1', 'TREE TREK 2']:
-                # AATT-trained workers
-                return [worker for worker in (in_today_workers + late_shift_workers) if worker.name not in used_workers and 'AATT' in worker.roles]
+                return [
+                    worker for worker in in_today_workers
+                    if worker.name not in used_workers and 'MT' in worker.roles
+                ]
+            elif role in role_to_training['ICA']:
+                # Workers trained in ICA
+                return [
+                    worker for worker in in_today_workers
+                    if worker.name not in used_workers and 'ICA' in worker.roles
+                ]
             else:
-                # Host, Dekit, Kit Up roles
-                eligible = [worker for worker in in_today_workers if worker.name not in used_workers and 'KITUP' in worker.roles]
-                if not eligible:
-                    eligible = [worker for worker in late_shift_workers if worker.name not in used_workers and 'KITUP' in worker.roles]
-                return eligible
+                # Return an empty list if the role is invalid or not mapped
+                return []
+
 
 
         # Assign workers to the first time slot (9:00-9:30)
+        morning_assignments = {}  # Dictionary to store the morning role assignments
         for role in prioritized_roles:
             if role in role_to_column:
                 eligible_workers = get_eligible_workers(role)
@@ -216,6 +228,7 @@ def generate_schedule():
             logging.info(f"Spare workers: {spare_workers}")
         else:
             logging.info("No spare workers.")
+
 
         # Fill Shed (Host, Dekit, Kit Up 1), Tree Trek, Mini Trek, and ICA roles for all time slots till lunch
         lunch_slots = [3, 4, 5, 6, 7, 8]  # Rows corresponding to 9:30, 10:00, ..., 12:00-12:45
@@ -259,6 +272,203 @@ def generate_schedule():
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = worker
+
+        # Assign workers to their starting positions after lunch (12:45-1:30)
+        logging.info("Assigning workers for 12:45-1:30 (after lunch)...")
+
+        # Track afternoon usage
+        afternoon_valid_roles = {}  # Roles assigned in the afternoon
+        afternoon_used_workers = set()  # Workers used in the afternoon
+
+        # Define restricted roles and shed roles
+        shed_roles = {'Host', 'Dekit', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2'}
+        restricted_roles = {
+            'TREE TREK 1', 'TREE TREK 2', 'Course Support 1', 'Course Support 2',
+            'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
+            'Mini Trek', 'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4'
+        }
+
+        # Function to get eligible workers for afternoon assignments
+        def get_afternoon_eligible_workers(role):
+            if role in restricted_roles_for_late_shift:
+                # For restricted roles, exclude late-shift workers and check training
+                eligible = [
+                    worker for worker in in_today_workers
+                    if worker.name not in afternoon_used_workers
+                    and role in role_to_training.get('ICA', [])  # Ensure the worker is trained for ICA
+                    and 'ICA' in worker.roles  # Worker must be trained for ICA
+                ]
+            elif role in role_to_training['KITUP']:
+                # For KITUP roles, allow reassignment only if no other eligible workers are available
+                eligible = [
+                    worker for worker in (in_today_workers + late_shift_workers)
+                    if worker.name not in afternoon_used_workers
+                    and role in role_to_training['KITUP']
+                    and 'KITUP' in worker.roles  # Worker must be trained for KITUP
+                ]
+                # Allow repeating morning assignments only if no other eligible workers
+                if not eligible:
+                    eligible = [
+                        worker for worker in (in_today_workers + late_shift_workers)
+                        if worker.name not in afternoon_used_workers
+                    ]
+            elif role in role_to_training['AATT']:
+                # For AATT roles, exclude morning-assigned workers and ensure training
+                eligible = [
+                    worker for worker in (in_today_workers + late_shift_workers)
+                    if worker.name not in afternoon_used_workers
+                    and role in role_to_training['AATT']
+                    and 'AATT' in worker.roles  # Worker must be trained for AATT
+                ]
+            elif role in role_to_training['MT']:
+                # For Mini Trek roles, exclude morning-assigned workers and ensure training
+                eligible = [
+                    worker for worker in in_today_workers
+                    if worker.name not in afternoon_used_workers
+                    and role in role_to_training['MT']
+                    and 'MT' in worker.roles  # Worker must be trained for MT
+                ]
+            elif role in role_to_training['ICA']:
+                # For ICA roles, exclude morning-assigned workers and ensure training
+                eligible = [
+                    worker for worker in in_today_workers
+                    if worker.name not in afternoon_used_workers
+                    and role in role_to_training['ICA']
+                    and 'ICA' in worker.roles  # Worker must be trained for ICA
+                ]
+            elif role in shed_roles:
+                # For shed roles, allow reassignment only if no other workers are available
+                eligible = [
+                    worker for worker in (in_today_workers + late_shift_workers)
+                    if worker.name not in afternoon_used_workers
+                ]
+                if not eligible:
+                    # Allow repeating morning roles if no other workers are available
+                    eligible = [
+                        worker for worker in (in_today_workers + late_shift_workers)
+                        if worker.name not in afternoon_used_workers
+                    ]
+            else:
+                # General case: Standard eligibility logic
+                eligible = [
+                    worker for worker in (in_today_workers + late_shift_workers)
+                    if worker.name not in afternoon_used_workers
+                ]
+
+            # Ensure no one is assigned to the same role in both morning and afternoon unless allowed
+            if role not in role_to_training['KITUP']:  # KITUP roles can be repeated only if no options
+                eligible = [
+                    worker for worker in eligible
+                    if worker.name != morning_assignments.get(role)  # Prevent assigning the same role in afternoon
+                ]
+
+            return eligible
+
+
+
+
+        # Assign workers for 12:45-1:30
+        for role in prioritized_roles:
+            eligible_workers = get_afternoon_eligible_workers(role)
+            logging.debug(f"Eligible workers for {role} (12:45-1:30): {[worker.name for worker in eligible_workers]}")
+            if eligible_workers:
+                selected_worker = choice(eligible_workers)  # Randomly select a worker
+                afternoon_valid_roles[role] = selected_worker.name
+                afternoon_used_workers.add(selected_worker.name)
+                logging.info(f"Assigned {selected_worker.name} to {role} (12:45-1:30)")
+            else:
+                logging.warning(f"No eligible workers for {role} (12:45-1:30), skipping.")
+
+
+        # Print assignments to console
+        logging.info("Afternoon Assignments (12:45-1:30):")
+        for role, worker in afternoon_valid_roles.items():
+            logging.info(f"{role}: {worker}")
+
+        # Write afternoon assignments (12:45-1:30) to the Excel sheet
+        logging.info("Writing afternoon assignments (12:45-1:30) to the Excel sheet...")
+
+        # Identify the row corresponding to 12:45-1:30
+        afternoon_slot_row = None
+
+        # Find the row for "12:45-1:30" in the Excel sheet
+        for row in range(1, sheet.max_row + 1):
+            cell_value = sheet.cell(row=row, column=1).value
+            if cell_value and str(cell_value).strip() == "12:45-1:30":
+                afternoon_slot_row = row
+                break
+
+        if afternoon_slot_row:
+            for role, worker in afternoon_valid_roles.items():
+                column = role_to_column.get(role)
+                if column:
+                    sheet.cell(row=afternoon_slot_row, column=column).value = worker
+                    logging.info(f"Assigned {worker} to {role} (12:45-1:30, Row: {afternoon_slot_row}, Column: {column})")
+        else:
+            logging.warning("Unable to find the row for '12:45-1:30' in the Excel sheet.")
+
+
+        # Define afternoon time slots in the Excel sheet based on actual labels
+        afternoon_slots_rows = [11, 12, 13, 14, 15]  # Corresponding rows for 13:30, 14:00, ..., 15:30
+
+        # Assign workers for each afternoon time slot
+        for slot_index, slot_row in enumerate(afternoon_slots_rows):
+            logging.info(f"Assigning workers for afternoon slot {slot_index + 1} (Row: {slot_row})...")
+
+            # Handle Kit Up 2, Kit Up 3, Clip In 1, and Clip In 2 at 14:30
+            if slot_row == 13:  # Row corresponding to 14:30
+                # Swap Kit Up 2 with Clip In 1
+                temp_kit_up_2 = afternoon_valid_roles.get('Kit Up 2')
+                temp_kit_up_3 = afternoon_valid_roles.get('Kit Up 3')
+                afternoon_valid_roles['Kit Up 2'], afternoon_valid_roles['Clip In 1'] = afternoon_valid_roles.get('Clip In 1'), temp_kit_up_2
+                afternoon_valid_roles['Kit Up 3'], afternoon_valid_roles['Clip In 2'] = afternoon_valid_roles.get('Clip In 2'), temp_kit_up_3
+
+            # Assign workers for the current time slot
+            for role in prioritized_roles:
+                eligible_workers = get_afternoon_eligible_workers(role)
+                
+                # Filter out workers not trained for ICA roles if assigning to ICA roles
+                if role.startswith('ICA'):
+                    eligible_workers = [worker for worker in eligible_workers if 'ICA' in worker.roles]
+
+                logging.debug(f"Eligible workers for {role} (Row {slot_row}): {[worker.name for worker in eligible_workers]}")
+
+                if eligible_workers:
+                    selected_worker = choice(eligible_workers)  # Randomly select a worker
+                    afternoon_valid_roles[role] = selected_worker.name
+                    afternoon_used_workers.add(selected_worker.name)
+                    logging.info(f"Assigned {selected_worker.name} to {role} (Row {slot_row})")
+                else:
+                    logging.warning(f"No eligible workers for {role} (Row {slot_row}), skipping.")
+
+            # Write assignments for the current time slot to the Excel sheet
+            logging.info(f"Writing assignments for Row {slot_row} to the Excel sheet...")
+            for role, worker in afternoon_valid_roles.items():
+                column = role_to_column.get(role)
+                if column:
+                    sheet.cell(row=slot_row, column=column).value = worker
+                    logging.info(f"Assigned {worker} to {role} (Row: {slot_row}, Column: {column})")
+
+            # Handle Course role rotations for every half-hour time slot
+            course_roles = [
+                'Course Support 1', 'Course Support 2', 'Zip Top 1',
+                'Zip Top 2', 'Zip Ground', 'rotate to course 1'
+            ]
+            if slot_index == 0:  # Initialize course roles for the first slot
+                course_workers = [afternoon_valid_roles.get(role) for role in course_roles]
+
+            # Rotate course roles immediately after the first slot
+            if slot_index >= 0:
+                course_workers = course_workers[-1:] + course_workers[:-1]  # Rotate the roles
+                for role, worker in zip(course_roles, course_workers):
+                    column = role_to_column.get(role)
+                    if column:
+                        sheet.cell(row=slot_row, column=column).value = worker
+                        logging.info(f"Rotated {worker} to {role} (Row: {slot_row}, Column: {column})")
+
+
+        # Log completion of the afternoon schedule
+        logging.info("Completed assigning workers for the afternoon schedule.")
 
 
         # Save and send the Excel file
