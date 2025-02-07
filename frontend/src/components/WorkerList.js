@@ -7,6 +7,7 @@ import axios from "axios";
 const WorkerList = () => {
     const [workers, setWorkers] = useState([]);
     const [templates, setTemplates] = useState([]); // List of uploaded templates
+    const [searchQuery, setSearchQuery] = useState(""); // State for search input
     const [selectedTemplate, setSelectedTemplate] = useState(""); // Selected template for schedule generation
     const [fileFormat, setFileFormat] = useState("xlsx");
     const [file, setFile] = useState(null); // For uploading new templates
@@ -148,8 +149,6 @@ const WorkerList = () => {
         });
     };
     
-    
-    
 
     const sortedWorkers = [...workers].sort((a, b) => {
         const aAvailableToday = isWorkerAvailableToday(a.availability);
@@ -227,61 +226,68 @@ const WorkerList = () => {
                 </button>
             </div>
 
+            {/* Search Bar */}
+            <div className="mb-4">
+                <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Search workers..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                />
+            </div>
+
             {/* Worker List */}
             <div className="row g-2 mt-4">
-                {sortedWorkers.map((worker) => {
-                    const nextAvailability = getNextAvailability(worker.availability);
-                    const isInToday = isWorkerAvailableToday(worker.availability);
+                {sortedWorkers
+                    .filter(worker => worker.name.toLowerCase().includes(searchQuery.toLowerCase())) // Filter by name
+                    .map((worker) => {
+                        const nextAvailability = getNextAvailability(worker.availability);
+                        const isInToday = isWorkerAvailableToday(worker.availability);
 
-                    return (
-                        <div
-                            className={`col-12 col-sm-6 col-md-4 col-lg-3 ${
-                                isInToday ? "border border-success" : ""
-                            }`}
-                            key={worker.id}
-                        >
-                            <div className="card h-100 shadow-sm">
-                                <div className="card-body p-2">
-                                    <h6 className="card-title mb-2">
-                                        {worker.name}
-                                        {isInToday && (
-                                            <span className="badge bg-success ms-2">
-                                                In Today
-                                            </span>
-                                        )}
-                                    </h6>
-                                    <p className="card-text mb-2">
-                                        <strong>Roles:</strong> {worker.roles.join(", ")}
-                                    </p>
-                                    <p className="card-text mb-2">
-                                        <strong>Next Availability:</strong>{" "}
-                                        {isInToday
-                                            ? "In Today"
-                                            : nextAvailability
-                                            ? format(nextAvailability, "MMM dd, yyyy HH:mm")
-                                            : "No upcoming availability"}
-                                    </p>
-                                    <div className="d-flex justify-content-between">
-                                        <button
-                                            className="btn btn-primary btn-sm"
-                                            onClick={() =>
-                                                navigate(`/update-worker/${worker.id}`)
-                                            }
-                                        >
-                                            Update
-                                        </button>
-                                        <button
-                                            className="btn btn-danger btn-sm"
-                                            onClick={() => handleDelete(worker.id)}
-                                        >
-                                            Delete
-                                        </button>
+                        return (
+                            <div
+                                className={`col-12 col-sm-6 col-md-4 col-lg-3 ${isInToday ? "border border-success" : ""}`}
+                                key={worker.id}
+                            >
+                                <div className="card h-100 shadow-sm">
+                                    <div className="card-body p-2">
+                                        <h6 className="card-title mb-2">
+                                            {worker.name}
+                                            {isInToday && (
+                                                <span className="badge bg-success ms-2">In Today</span>
+                                            )}
+                                        </h6>
+                                        <p className="card-text mb-2">
+                                            <strong>Roles:</strong> {worker.roles.join(", ")}
+                                        </p>
+                                        <p className="card-text mb-2">
+                                            <strong>Next Availability:</strong>{" "}
+                                            {isInToday
+                                                ? "In Today"
+                                                : nextAvailability
+                                                ? format(nextAvailability, "MMM dd, yyyy HH:mm")
+                                                : "No upcoming availability"}
+                                        </p>
+                                        <div className="d-flex justify-content-between">
+                                            <button
+                                                className="btn btn-primary btn-sm"
+                                                onClick={() => navigate(`/update-worker/${worker.id}`)}
+                                            >
+                                                Update
+                                            </button>
+                                            <button
+                                                className="btn btn-danger btn-sm"
+                                                onClick={() => handleDelete(worker.id)}
+                                            >
+                                                Delete
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    );
-                })}
+                        );
+                    })}
             </div>
         </div>
     );
