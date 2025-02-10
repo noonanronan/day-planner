@@ -154,10 +154,14 @@ def generate_schedule():
         prioritized_roles = [
             'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4',
             'Mini Trek',
-            'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
+            'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
             'TREE TREK 1', 'TREE TREK 2',
             'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host'
         ]
+
+        # Only add 'Course Support 1' if it exists in the Excel file
+        if "Course Support 1" in role_to_column:
+            prioritized_roles.insert(5, "Course Support 1")  # Insert at the correct position
 
         # Role restrictions for late-shift workers
         restricted_roles_for_late_shift = {
@@ -219,6 +223,9 @@ def generate_schedule():
 
         # Write the assignments for the first time slot (9:00-9:30) to the Excel file
         for role, column in role_to_column.items():
+            if role == "Course Support 1" and role not in role_to_column:
+                continue  # Skip if it doesn’t exist
+
             assigned_worker = valid_roles.get(role)
             if assigned_worker:
                 sheet.cell(row=2, column=column).value = assigned_worker
@@ -261,9 +268,11 @@ def generate_schedule():
 
         # Handle Course role rotations till lunch
         course_roles = [
-            'Course Support 1', 'Course Support 2', 'Zip Top 1',
-            'Zip Top 2', 'Zip Ground', 'rotate to course 1'
+            'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1'
         ]
+
+        if "Course Support 1" in role_to_column:
+            course_roles.insert(0, "Course Support 1")  
 
         # Assign initial workers to course roles (9:00-9:30)
         course_workers = [valid_roles.get(role) for role in course_roles]
@@ -309,11 +318,16 @@ def generate_schedule():
                     and not any(m_role in tree_trek_roles for m_role in morning_assignments.get(worker.name, []))
                 ]
             elif role in course_roles:
+                # Skip 'Course Support 1' if it's not in the Excel file
+                if role == "Course Support 1" and role not in role_to_column:
+                    return []
+
                 eligible = [
                     worker for worker in eligible
                     if 'AATT' in worker.roles  # Must be trained in AATT
                     and not any(m_role in course_roles for m_role in morning_assignments.get(worker.name, []))
                 ]
+
             elif role in mini_trek_roles:
                 eligible = [
                     worker for worker in eligible
