@@ -156,7 +156,7 @@ def generate_schedule():
             'Mini Trek',
             'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
             'TREE TREK 1', 'TREE TREK 2',
-            'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Dekit', 'Host'
+            'Clip In 1', 'Clip In 2', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Dekit', 'Host'
         ]
 
         # Only add 'Course Support 1' if it exists in the Excel file
@@ -172,32 +172,47 @@ def generate_schedule():
         used_workers = set()
 
         def get_eligible_workers(role):
+            # KITUP Roles
             if role in role_to_training['KITUP']:
                 return [
                     worker for worker in (in_today_workers + late_shift_workers)
                     if worker.name not in used_workers
-                    and 'KITUP' in worker.roles  # Only select workers trained in KITUP
+                    and 'KITUP' in worker.roles  # Must be trained in KITUP
                 ]
+
+            # AATT Roles
             elif role in role_to_training['AATT']:
                 return [
                     worker for worker in (in_today_workers + late_shift_workers)
                     if worker.name not in used_workers
-                    and 'AATT' in worker.roles  # Only select workers trained in AATT
+                    and 'AATT' in worker.roles  # Must be trained in AATT
                 ]
+
+            # Mini Trek - Only early workers can be assigned
             elif role in role_to_training['MT']:
                 return [
-                    worker for worker in in_today_workers
+                    worker for worker in in_today_workers  # Only early workers
                     if worker.name not in used_workers
-                    and 'MT' in worker.roles  # Only select workers trained in Mini Trek
+                    and 'MT' in worker.roles  # Must be trained in Mini Trek
                 ]
+
+            # ICA - Only early workers can be assigned
             elif role in role_to_training['ICA']:
                 return [
-                    worker for worker in in_today_workers
+                    worker for worker in in_today_workers  # Only early workers
                     if worker.name not in used_workers
-                    and 'ICA' in worker.roles  # Only select workers trained in ICA
+                    and 'ICA' in worker.roles  # Must be trained in ICA
                 ]
-            else:
-                return []
+
+            # RESTRICT LATE-SHIFT WORKERS from Course Support 2, Zip Top 1, Zip Top 2, and Zip Ground
+            elif role in ["Course Support 2", "Zip Top 1", "Zip Top 2", "Zip Ground"]:
+                return [
+                    worker for worker in in_today_workers  # ONLY early workers allowed
+                    if worker.name not in used_workers
+                    and 'AATT' in worker.roles  # Must be trained in AATT
+                ]
+
+            return []
 
 
 
@@ -207,13 +222,19 @@ def generate_schedule():
         for role in prioritized_roles:
             if role in role_to_column:
                 eligible_workers = get_eligible_workers(role)
+
+                # 🚫 Exclude late-shift workers for specific roles at 9:00 AM
+                if role in ["Course Support 2", "Zip Top 1", "Zip Top 2", "Zip Ground"]:
+                    eligible_workers = [worker for worker in eligible_workers if worker not in late_shift_workers]
+
                 if eligible_workers:
                     selected_worker = choice(eligible_workers)
                     valid_roles[role] = selected_worker.name
                     used_workers.add(selected_worker.name)
-                    logging.info(f"Assigned {selected_worker.name} to {role}")
+                    logging.info(f"Assigned {selected_worker.name} to {role} (9:00 AM)")
                 else:
                     logging.warning(f"No eligible workers for {role}, skipping.")
+
 
         # Track morning assignments properly (store all roles)
         for role, worker in valid_roles.items():
@@ -298,7 +319,15 @@ def generate_schedule():
         # Define role categories for clarity and maintainability
         shed_roles = {'Host', 'Dekit', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2'}
         tree_trek_roles = {'TREE TREK 1', 'TREE TREK 2'}
-        course_roles = {'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1'}
+        course_roles = {'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1'}
+
+        # Only add 'Course Support 1' if it exists in the Excel file
+        if "Course Support 1" in role_to_column:
+            course_roles.add("Course Support 1")
+
+        # Convert course_roles to a **list** for ordering
+        course_roles = list(course_roles)
+
         mini_trek_roles = {'Mini Trek'}
         ica_roles = {'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4'}
 
@@ -311,17 +340,22 @@ def generate_schedule():
                 if worker.name not in afternoon_used_workers
             ]
 
-            if role in tree_trek_roles:
+            if role in role_to_training['KITUP']:
+                eligible = [
+                    worker for worker in eligible
+                    if 'KITUP' in worker.roles  # Must be trained in KITUP
+                ]
+
+            elif role in tree_trek_roles:
                 eligible = [
                     worker for worker in eligible
                     if 'AATT' in worker.roles  # Must be trained in AATT
                     and not any(m_role in tree_trek_roles for m_role in morning_assignments.get(worker.name, []))
                 ]
-            elif role in course_roles:
-                # Skip 'Course Support 1' if it's not in the Excel file
-                if role == "Course Support 1" and role not in role_to_column:
-                    return []
 
+            elif role in course_roles:
+                if role == "Course Support 1" and "Course Support 1" not in role_to_column:
+                    return []
                 eligible = [
                     worker for worker in eligible
                     if 'AATT' in worker.roles  # Must be trained in AATT
@@ -334,6 +368,7 @@ def generate_schedule():
                     if 'MT' in worker.roles  # Must be trained in Mini Trek
                     and not any(m_role in mini_trek_roles for m_role in morning_assignments.get(worker.name, []))
                 ]
+
             elif role in ica_roles:
                 eligible = [
                     worker for worker in in_today_workers  # Ensure only early workers can be assigned
@@ -341,16 +376,17 @@ def generate_schedule():
                     and 'ICA' in worker.roles  # Must be trained in ICA
                     and not any(m_role in ica_roles for m_role in morning_assignments.get(worker.name, []))
                 ]
-            elif role in shed_roles:
-                non_repeating_workers = [
-                    worker for worker in eligible
-                    if 'KITUP' in worker.roles  # Must be trained in KITUP
-                    and not any(m_role in shed_roles for m_role in morning_assignments.get(worker.name, []))
+
+            elif role in ["Course Support 2", "Zip Top 1", "Zip Top 2", "Zip Ground"]:
+                # Ensure late workers are NOT assigned in these positions
+                eligible = [
+                    worker for worker in in_today_workers  # ONLY early workers
+                    if worker.name not in afternoon_used_workers
+                    and 'AATT' in worker.roles  # Must be trained in AATT
                 ]
-                if non_repeating_workers:
-                    eligible = non_repeating_workers
 
             return eligible
+            
 
 
         # Assign workers for 12:45-1:30
@@ -377,7 +413,6 @@ def generate_schedule():
         # Identify the row corresponding to 12:45-1:30
         afternoon_slot_row = None
 
-        # Find the row for "12:45-1:30" in the Excel sheet
         for row in range(1, sheet.max_row + 1):
             cell_value = sheet.cell(row=row, column=1).value
             if cell_value and str(cell_value).strip() == "12:45-1:30":
@@ -386,6 +421,9 @@ def generate_schedule():
 
         if afternoon_slot_row:
             for role, worker in afternoon_valid_roles.items():
+                if role == "Course Support 1" and "Course Support 1" not in role_to_column:
+                    continue  # Skip if 'Course Support 1' is not in the Excel file
+
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=afternoon_slot_row, column=column).value = worker
@@ -416,6 +454,10 @@ def generate_schedule():
                 # Filter out workers not trained for ICA roles if assigning to ICA roles
                 if role.startswith('ICA'):
                     eligible_workers = [worker for worker in eligible_workers if 'ICA' in worker.roles]
+                
+                # Apply KITUP restrictions directly in assignment loop
+                if role in ['Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2']:
+                    eligible_workers = [worker for worker in eligible_workers if 'KITUP' in worker.roles]
 
                 logging.debug(f"Eligible workers for {role} (Row {slot_row}): {[worker.name for worker in eligible_workers]}")
 
@@ -430,16 +472,21 @@ def generate_schedule():
             # Write assignments for the current time slot to the Excel sheet
             logging.info(f"Writing assignments for Row {slot_row} to the Excel sheet...")
             for role, worker in afternoon_valid_roles.items():
+                if role == "Course Support 1" and "Course Support 1" not in role_to_column:
+                    continue  # Skip if 'Course Support 1' is not in the Excel file
+
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = worker
                     logging.info(f"Assigned {worker} to {role} (Row: {slot_row}, Column: {column})")
 
             # Handle Course role rotations for every half-hour time slot
-            course_roles = [
-                'Course Support 1', 'Course Support 2', 'Zip Top 1',
-                'Zip Top 2', 'Zip Ground', 'rotate to course 1'
-            ]
+            course_roles = ['Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1']
+
+            # Only include 'Course Support 1' if it's in the Excel file
+            if "Course Support 1" in role_to_column:
+                course_roles.insert(0, "Course Support 1")
+
             if slot_index == 0:  # Initialize course roles for the first slot
                 course_workers = [afternoon_valid_roles.get(role) for role in course_roles]
 
@@ -452,7 +499,7 @@ def generate_schedule():
                         sheet.cell(row=slot_row, column=column).value = worker
                         logging.info(f"Rotated {worker} to {role} (Row: {slot_row}, Column: {column})")
 
-
+        logging.info(f"Final Afternoon Assignments (12:45-1:30): {afternoon_valid_roles}")
         # Log completion of the afternoon schedule
         logging.info("Completed assigning workers for the afternoon schedule.")
 
