@@ -91,7 +91,29 @@ def list_templates():
 def generate_schedule():
     try:
         selected_file = request.json.get('template')
+        selected_date_str = request.json.get('date')  # ⬅️ Get selected date from request
+
+        # Debugging logs
+        logging.debug(f"Received request: {request.json}")
         logging.debug(f"Selected file: {selected_file}")
+        logging.debug(f"Selected date (raw): {selected_date_str}")
+
+        # Validate input
+        if not selected_file:
+            return jsonify({'error': 'Template is required'}), 400
+        if not selected_date_str:
+            return jsonify({'error': 'Date is required'}), 400
+
+        try:
+            selected_date = datetime.strptime(selected_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+
+        logging.debug(f"Generating schedule for: {selected_date}")
+
+
+        selected_date = datetime.strptime(selected_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)  # ⬅️ Convert to datetime
+        logging.debug(f"Generating schedule for: {selected_date}")
         if not selected_file:
             return jsonify({'error': 'No template selected'}), 400
 
@@ -102,18 +124,10 @@ def generate_schedule():
 
         # Fetch all workers from the database
         workers = Worker.query.all()
-        today = datetime.now(tz=timezone.utc)
-        logging.debug(f"Today's UTC date: {today}")
+        # Replace "today" with "selected_date"
+        logging.debug(f"Generating schedule for: {selected_date}")
 
-        # Define role-to-training mapping
-        role_to_training = {
-            'KITUP': ['Host', 'Dekit', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2'],
-            'AATT': ['TREE TREK 1', 'TREE TREK 2', 'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1'],
-            'MT': ['Mini Trek'],
-            'ICA': ['ICA 1', 'ICA 2', 'ICA 3', 'ICA 4']
-        }
-
-        # Separate workers into available and late-shift workers
+        # Separate workers into available and late-shift workers based on the selected date
         in_today_workers = []
         late_shift_workers = []
 
@@ -122,19 +136,25 @@ def generate_schedule():
                 try:
                     start = parser.parse(availability['start']).astimezone(timezone.utc)
                     end = parser.parse(availability['end']).astimezone(timezone.utc)
-                    logging.debug(f"Worker {worker.name} availability: start={start}, end={end}")
 
-                    if start <= today <= end:
-                        if start.hour >= 10:  # Late-shift workers start at or after 10:00
+                    if start.date() <= selected_date.date() <= end.date():
+                        if start.hour >= 10:
                             late_shift_workers.append(worker)
-                        else:  # Early workers available before 10:00
+                        else:
                             in_today_workers.append(worker)
-                        break
+                        break  # Stop checking once the worker is confirmed available
                 except Exception as e:
                     logging.error(f"Error parsing availability for worker {worker.name}: {e}")
 
-        logging.debug(f"Final In Today Workers: {[worker.name for worker in in_today_workers]}")
-        logging.debug(f"Final Late Shift Workers: {[worker.name for worker in late_shift_workers]}")
+        logging.debug(f"Workers available on {selected_date}: {len(in_today_workers)} early, {len(late_shift_workers)} late.")
+
+        # Define role-to-training mapping
+        role_to_training = {
+            'KITUP': ['Host', 'Dekit', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2'],
+            'AATT': ['TREE TREK 1', 'TREE TREK 2', 'Course Support 1', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1'],
+            'MT': ['Mini Trek'],
+            'ICA': ['ICA 1', 'ICA 2', 'ICA 3', 'ICA 4']
+        }
 
 
         # Dynamically map roles based on the Excel file
@@ -435,9 +455,41 @@ def generate_schedule():
         # Define afternoon time slots in the Excel sheet based on actual labels
         afternoon_slots_rows = [11, 12, 13, 14, 15]  # Corresponding rows for 13:30, 14:00, ..., 15:30
 
+        # Ensure ICA workers assigned at 12:45 - 1:30 are stored for reuse
+        ica_workers_after_lunch = {
+            role: afternoon_valid_roles[role] for role in ica_roles if role in afternoon_valid_roles
+        }
+
+        logging.info(f"Persisting ICA workers for afternoon slots: {ica_workers_after_lunch}")
+
         # Assign workers for each afternoon time slot
         for slot_index, slot_row in enumerate(afternoon_slots_rows):
             logging.info(f"Assigning workers for afternoon slot {slot_index + 1} (Row: {slot_row})...")
+
+            # Assign ICA roles using the same workers from 12:45 - 1:30
+            for role in ica_roles:
+                column = role_to_column.get(role)
+                if column:
+                    sheet.cell(row=slot_row, column=column).value = ica_workers_after_lunch.get(role, "")
+                    logging.info(f"Assigned {ica_workers_after_lunch.get(role, 'N/A')} to {role} (Row: {slot_row}, Column: {column})")
+
+            # Assign remaining non-ICA roles as usual
+            for role in prioritized_roles:
+                if role in ica_roles:  # Skip ICA roles since they are already assigned
+                    continue
+
+                eligible_workers = get_afternoon_eligible_workers(role)
+                
+                logging.debug(f"Eligible workers for {role} (Row {slot_row}): {[worker.name for worker in eligible_workers]}")
+
+                if eligible_workers:
+                    selected_worker = choice(eligible_workers)  # Randomly select a worker
+                    afternoon_valid_roles[role] = selected_worker.name
+                    afternoon_used_workers.add(selected_worker.name)
+                    logging.info(f"Assigned {selected_worker.name} to {role} (Row {slot_row})")
+                else:
+                    logging.warning(f"No eligible workers for {role} (Row {slot_row}), skipping.")
+
 
             # Handle Kit Up 2, Kit Up 3, Clip In 1, and Clip In 2 at 14:30
             if slot_row == 13:  # Row corresponding to 14:30

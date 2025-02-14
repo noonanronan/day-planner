@@ -10,6 +10,7 @@ const WorkerList = () => {
     const [searchQuery, setSearchQuery] = useState(""); // State for search input
     const [selectedTemplate, setSelectedTemplate] = useState(""); // Selected template for schedule generation
     const [fileFormat, setFileFormat] = useState("xlsx");
+    const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd")); // Default to today
     const [file, setFile] = useState(null); // For uploading new templates
     const [error, setError] = useState(null); // Error handling for uploads
     const navigate = useNavigate();
@@ -51,21 +52,23 @@ const WorkerList = () => {
     };
 
     const handleDownloadSchedule = async () => {
+        console.log("Selected Date Before Sending:", selectedDate);
+
         if (!selectedTemplate) {
             alert("Please select a template to generate the schedule.");
             return;
         }
-
+    
         try {
             const response = await axios.post(
                 "http://127.0.0.1:5001/generate-schedule",
-                { template: selectedTemplate },
+                { template: selectedTemplate, date: selectedDate }, // Sending date
                 {
                     params: { format: fileFormat },
-                    responseType: "blob", // Important for downloading files
+                    responseType: "blob",
                 }
             );
-
+    
             const extension = fileFormat === "ods" ? "ods" : "xlsx";
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement("a");
@@ -78,6 +81,7 @@ const WorkerList = () => {
             alert("Failed to download schedule. Please try again.");
         }
     };
+    
 
     const handleFileChange = (e) => {
         const selectedFile = e.target.files[0];
@@ -184,6 +188,17 @@ const WorkerList = () => {
                     Upload File
                 </button>
                 {error && <p className="text-danger mt-2">{error}</p>}
+            </div>
+
+            {/* Select Date */}
+            <div className="mb-4">
+                <label className="form-label">Select Date:</label>
+                <input
+                    type="date"
+                    className="form-control"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                />
             </div>
 
             {/* Select Template and Generate Schedule Section */}
