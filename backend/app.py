@@ -11,6 +11,7 @@ import os
 import logging
 import random
 from random import choice
+import pymysql
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
@@ -93,10 +94,14 @@ def generate_schedule():
         selected_file = request.json.get('template')
         selected_date_str = request.json.get('date')  # ⬅️ Get selected date from request
 
-        # Debugging logs
-        logging.debug(f"Received request: {request.json}")
-        logging.debug(f"Selected file: {selected_file}")
-        logging.debug(f"Selected date (raw): {selected_date_str}")
+        # Reset all stateful variables to prevent carryover issues
+        valid_roles = {}
+        used_workers = set()
+        afternoon_valid_roles = {}  
+        afternoon_used_workers = set()
+        course_workers = []  # Ensures fresh assignment
+        morning_assignments = {}  # Ensures morning roles are properly tracked
+        assigned_worker_names = set()  # Track assigned workers
 
         # Validate input
         if not selected_file:
@@ -109,23 +114,16 @@ def generate_schedule():
         except ValueError:
             return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
-        logging.debug(f"Generating schedule for: {selected_date}")
-
-
         selected_date = datetime.strptime(selected_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)  # ⬅️ Convert to datetime
-        logging.debug(f"Generating schedule for: {selected_date}")
         if not selected_file:
             return jsonify({'error': 'No template selected'}), 400
 
         filepath = os.path.join(UPLOAD_FOLDER, selected_file)
-        logging.debug(f"Filepath: {filepath}")
         if not os.path.exists(filepath):
             return jsonify({'error': 'Selected template not found'}), 404
 
         # Fetch all workers from the database
         workers = Worker.query.all()
-        # Replace "today" with "selected_date"
-        logging.debug(f"Generating schedule for: {selected_date}")
 
         # Separate workers into available and late-shift workers based on the selected date
         in_today_workers = []
@@ -151,8 +149,6 @@ def generate_schedule():
                 except Exception as e:
                     logging.error(f"Error parsing availability for worker {worker.name}: {e}")
 
-        logging.debug(f"Workers available on {selected_date}: {len(in_today_workers)} early, {len(late_shift_workers)} late.")
-
         # Define role-to-training mapping
         role_to_training = {
             'KITUP': ['Host', 'Dekit', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2'],
@@ -173,7 +169,6 @@ def generate_schedule():
             if role:  # Skip empty cells
                 role_to_column[role.strip()] = col
 
-        logging.debug(f"Dynamically mapped roles: {role_to_column}")
 
         # Prioritized roles for assignment
         prioritized_roles = [
@@ -258,9 +253,7 @@ def generate_schedule():
                     selected_worker = choice(eligible_workers)
                     valid_roles[role] = selected_worker.name
                     used_workers.add(selected_worker.name)
-                    logging.info(f"Assigned {selected_worker.name} to {role} (9:00 AM)")
-                else:
-                    logging.warning(f"No eligible workers for {role}, skipping.")
+
 
         # Identify untrained workers (people without KITUP, AATT, MT, or ICA)
         untrained_workers = [
@@ -275,7 +268,6 @@ def generate_schedule():
                     selected_worker = choice(untrained_workers)
                     valid_roles[role] = selected_worker.name  # Assign worker
                     used_workers.add(selected_worker.name)  # Mark them as used
-                    logging.info(f"Assigned {selected_worker.name} to {role} (Last-Minute 9:00 AM Assignment).")
 
         # Ensure Host & Dekit are printed for all morning time slots (9:00 AM - 12:45 PM)
         for slot_row in range(2, 9):  # Rows for 9:00, 9:30, ..., 12:45
@@ -283,7 +275,6 @@ def generate_schedule():
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = valid_roles.get(role, "")
-                    logging.debug(f"Kept {valid_roles.get(role, 'N/A')} in {role} (Row {slot_row}) for the entire morning.")
 
 
         # Track morning assignments properly (store all roles)
@@ -302,17 +293,17 @@ def generate_schedule():
                 sheet.cell(row=2, column=column).value = assigned_worker
 
         
-
-        # Identify final spare workers
-        spare_workers = [
+        # Identify final spare workers from the morning (workers who were NOT assigned a role)
+        morning_spare_workers = [
             worker.name for worker in in_today_workers + late_shift_workers
-            if worker.name not in assigned_worker_names
+            if worker.name not in valid_roles.values()
         ]
 
-        if spare_workers:
-            logging.info(f"Spare workers: {spare_workers}")
+        # Log morning spare workers clearly
+        if morning_spare_workers:
+            logging.info(f"Morning Spare Workers ({len(morning_spare_workers)}): {', '.join(morning_spare_workers)}")
         else:
-            logging.info("No spare workers.")
+            logging.info("No Morning Spare Workers found.")
 
 
         # Fill Shed (Host, Dekit, Kit Up 1), Tree Trek, Mini Trek, and ICA roles for all time slots till lunch
@@ -360,8 +351,6 @@ def generate_schedule():
                 if column:
                     sheet.cell(row=slot_row, column=column).value = worker
 
-        # Assign workers to their starting positions after lunch (12:45-1:30)
-        logging.info("Assigning workers for 12:45-1:30 (after lunch)...")
 
         # Track afternoon usage
         afternoon_valid_roles = {}  # Roles assigned in the afternoon
@@ -443,14 +432,10 @@ def generate_schedule():
         # Assign workers for 12:45-1:30
         for role in prioritized_roles:
             eligible_workers = get_afternoon_eligible_workers(role)
-            logging.debug(f"Eligible workers for {role} (12:45-1:30): {[worker.name for worker in eligible_workers]}")
             if eligible_workers:
                 selected_worker = choice(eligible_workers)  # Randomly select a worker
                 afternoon_valid_roles[role] = selected_worker.name
                 afternoon_used_workers.add(selected_worker.name)
-                logging.info(f"Assigned {selected_worker.name} to {role} (12:45-1:30)")
-            else:
-                logging.warning(f"No eligible workers for {role} (12:45-1:30), skipping.")
 
         # Identify untrained workers who are still available in the afternoon
         untrained_workers_afternoon = [
@@ -466,7 +451,20 @@ def generate_schedule():
                     selected_worker = choice(untrained_workers_afternoon)
                     afternoon_valid_roles[role] = selected_worker.name  # Assign worker
                     afternoon_used_workers.add(selected_worker.name)  # Mark them as used
-                    logging.info(f"Assigned {selected_worker.name} to {role} (Last-Minute 12:45 PM Assignment).")
+        
+        # Identify final spare workers from the afternoon (workers who were NOT assigned a role)
+        afternoon_spare_workers = [
+            worker.name for worker in in_today_workers + late_shift_workers
+            if worker.name not in afternoon_valid_roles.values()
+        ]
+
+        # Log afternoon spare workers clearly
+        if afternoon_spare_workers:
+            logging.info(f"Afternoon Spare Workers ({len(afternoon_spare_workers)}): {', '.join(afternoon_spare_workers)}")
+        else:
+            logging.info("No Afternoon Spare Workers found.")
+
+
 
         # Ensure Host & Dekit are printed for all afternoon time slots (12:45 PM - 4:00 PM)
         for slot_row in range(10, 16):  # Rows for 12:45, 1:30, ..., 4:00
@@ -474,14 +472,7 @@ def generate_schedule():
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = afternoon_valid_roles.get(role, "")
-                    logging.debug(f"Kept {afternoon_valid_roles.get(role, 'N/A')} in {role} (Row {slot_row}) for the entire afternoon.")
 
-
-
-        # Print assignments to console
-        logging.info("Afternoon Assignments (12:45-1:30):")
-        for role, worker in afternoon_valid_roles.items():
-            logging.info(f"{role}: {worker}")
 
         # Write afternoon assignments (12:45-1:30) to the Excel sheet
         logging.info("Writing afternoon assignments (12:45-1:30) to the Excel sheet...")
@@ -503,9 +494,6 @@ def generate_schedule():
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=afternoon_slot_row, column=column).value = worker
-                    logging.info(f"Assigned {worker} to {role} (12:45-1:30, Row: {afternoon_slot_row}, Column: {column})")
-        else:
-            logging.warning("Unable to find the row for '12:45-1:30' in the Excel sheet.")
 
 
         # Define afternoon time slots in the Excel sheet based on actual labels
@@ -516,18 +504,15 @@ def generate_schedule():
             role: afternoon_valid_roles[role] for role in ica_roles if role in afternoon_valid_roles
         }
 
-        logging.info(f"Persisting ICA workers for afternoon slots: {ica_workers_after_lunch}")
 
         # Assign workers for each afternoon time slot
         for slot_index, slot_row in enumerate(afternoon_slots_rows):
-            logging.info(f"Assigning workers for afternoon slot {slot_index + 1} (Row: {slot_row})...")
 
             # Assign ICA roles using the same workers from 12:45 - 1:30
             for role in ica_roles:
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = ica_workers_after_lunch.get(role, "")
-                    logging.info(f"Assigned {ica_workers_after_lunch.get(role, 'N/A')} to {role} (Row: {slot_row}, Column: {column})")
 
             # Assign remaining non-ICA roles as usual
             for role in prioritized_roles:
@@ -535,16 +520,11 @@ def generate_schedule():
                     continue
 
                 eligible_workers = get_afternoon_eligible_workers(role)
-                
-                logging.debug(f"Eligible workers for {role} (Row {slot_row}): {[worker.name for worker in eligible_workers]}")
 
                 if eligible_workers:
                     selected_worker = choice(eligible_workers)  # Randomly select a worker
                     afternoon_valid_roles[role] = selected_worker.name
                     afternoon_used_workers.add(selected_worker.name)
-                    logging.info(f"Assigned {selected_worker.name} to {role} (Row {slot_row})")
-                else:
-                    logging.warning(f"No eligible workers for {role} (Row {slot_row}), skipping.")
 
 
             # Handle Kit Up 2, Kit Up 3, Clip In 1, and Clip In 2 at 14:30
@@ -567,15 +547,10 @@ def generate_schedule():
                 if role in ['Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2']:
                     eligible_workers = [worker for worker in eligible_workers if 'KITUP' in worker.roles]
 
-                logging.debug(f"Eligible workers for {role} (Row {slot_row}): {[worker.name for worker in eligible_workers]}")
-
                 if eligible_workers:
                     selected_worker = choice(eligible_workers)  # Randomly select a worker
                     afternoon_valid_roles[role] = selected_worker.name
                     afternoon_used_workers.add(selected_worker.name)
-                    logging.info(f"Assigned {selected_worker.name} to {role} (Row {slot_row})")
-                else:
-                    logging.warning(f"No eligible workers for {role} (Row {slot_row}), skipping.")
 
             # Write assignments for the current time slot to the Excel sheet
             logging.info(f"Writing assignments for Row {slot_row} to the Excel sheet...")
@@ -586,7 +561,6 @@ def generate_schedule():
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = worker
-                    logging.info(f"Assigned {worker} to {role} (Row: {slot_row}, Column: {column})")
 
             # Handle Course role rotations for every half-hour time slot
             course_roles = ['Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1']
@@ -605,16 +579,8 @@ def generate_schedule():
                     column = role_to_column.get(role)
                     if column:
                         sheet.cell(row=slot_row, column=column).value = worker
-                        logging.info(f"Rotated {worker} to {role} (Row: {slot_row}, Column: {column})")
-
-        logging.info(f"Final Afternoon Assignments (12:45-1:30): {afternoon_valid_roles}")
-        # Log completion of the afternoon schedule
-        logging.info("Completed assigning workers for the afternoon schedule.")
 
         evening_slots_rows = [16, 17, 18, 19, 20, 21]  # Rows for 16:00, 16:30, 17:00, 17:30, 18:00, 18:30
-
-        # Assign late-shift workers to ICA roles from 16:00 - 19:00
-        logging.info("Assigning late-shift workers to ICA roles (4:00 - 7:00 PM)...")
 
         # Ensure we only assign available late workers (if fewer than 4 exist)
         late_workers_for_ica = late_shift_workers[:min(4, len(late_shift_workers))]
@@ -628,9 +594,12 @@ def generate_schedule():
                     column = role_to_column.get(ica_role)
                     if column:
                         sheet.cell(row=slot_row, column=column).value = worker.name
-                        logging.info(f"Assigned {worker.name} to {ica_role} (Row: {slot_row})")
 
-        logging.debug(f"Evening ICA Assignments: {[(slot, worker.name) for slot in evening_slots_rows for worker in late_workers_for_ica]}")
+        logging.info("\n======== SPARE WORKERS SUMMARY ========")
+        logging.info(f"✅ Morning Spare Workers ({len(morning_spare_workers)}): {', '.join(morning_spare_workers) if morning_spare_workers else 'None'}")
+        logging.info(f"✅ Afternoon Spare Workers ({len(afternoon_spare_workers)}): {', '.join(afternoon_spare_workers) if afternoon_spare_workers else 'None'}'")
+        logging.info("========================================")
+
 
 
         # Save and send the Excel file
@@ -645,25 +614,26 @@ def generate_schedule():
 
 
 
-# Remove when not needed
-def print_excel_file(filepath):
-    try:
-        logging.debug("Attempting to load Excel file for inspection.")
-        workbook = openpyxl.load_workbook(filepath)
-        sheet = workbook.active
+# # Remove when not needed
+# def print_excel_file(filepath):
+#     try:
+#         logging.debug("Attempting to load Excel file for inspection.")
+#         workbook = openpyxl.load_workbook(filepath)
+#         sheet = workbook.active
 
-        logging.info("Excel File Contents:")
-        for row in sheet.iter_rows(values_only=True):
-            logging.info(row)
+#         logging.info("Excel File Contents:")
+#         for row in sheet.iter_rows(values_only=True):
+#             logging.info(row)
 
-        # Print merged cell ranges
-        logging.info("Merged Cell Ranges:")
-        for merged_range in sheet.merged_cells.ranges:
-            logging.info(f"Range: {merged_range}, Min Row: {merged_range.min_row}, Max Row: {merged_range.max_row}, "
-                         f"Min Col: {merged_range.min_col}, Max Col: {merged_range.max_col}")
+#         # Print merged cell ranges
+#         logging.info("Merged Cell Ranges:")
+#         for merged_range in sheet.merged_cells.ranges:
+#             logging.info(f"Range: {merged_range}, Min Row: {merged_range.min_row}, Max Row: {merged_range.max_row}, "
+#                          f"Min Col: {merged_range.min_col}, Max Col: {merged_range.max_col}")
 
-    except Exception as e:
-        logging.error(f"Error reading Excel file: {e}")
+#     except Exception as e:
+#         logging.error(f"Error reading Excel file: {e}")
+
 
 
 

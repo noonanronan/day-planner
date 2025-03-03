@@ -141,8 +141,9 @@ const WorkerList = () => {
 
     const isWorkerAvailableToday = (availability) => {
         const now = new Date();
-        const todayStart = new Date(now.setHours(0, 0, 0, 0)); // Start of today
-        const todayEnd = new Date(now.setHours(23, 59, 59, 999)); // End of today
+        const today = new Date(); // Current date
+        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0); // 00:00:00
+        const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59); // 23:59:59
     
         return availability.some((range) => {
             const start = parseISO(range.start);
@@ -151,10 +152,11 @@ const WorkerList = () => {
             return (
                 isValid(start) &&
                 isValid(end) &&
-                isWithinInterval(new Date(), { start, end }) // Check if the current time is within the availability range
+                start <= todayEnd && end >= todayStart // Ensure it's within today's range
             );
         });
-    };    
+    };
+        
     
 
     const sortedWorkers = [...workers].sort((a, b) => {
