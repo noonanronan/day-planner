@@ -176,7 +176,7 @@ def generate_schedule():
             'Mini Trek',
             'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
             'TREE TREK 1', 'TREE TREK 2',
-            'Clip In 1', 'Clip In 2', 'Kit Up 3', 'Kit Up 2', 'Kit Up 1', 'Dekit', 'Host'
+            'Clip In 1', 'Clip In 2', 'Kit Up 3', 'Kit Up 2', 'Kit Up 1', 
         ]
 
         # Only add 'Course Support 1' if it exists in the Excel file
@@ -310,8 +310,32 @@ def generate_schedule():
             worker for worker in in_today_workers if worker.name not in used_workers
         ]
 
-        # 🔥 Fix: Ensure Host & Dekit are assigned **after** Kit Up roles are filled
-        untrained_workers = [
+        # ✅ Ensure all Kit Up roles are filled FIRST
+        kitup_roles_priority = ['Kit Up 1', 'Kit Up 2']  # Highest priority
+        kitup_roles_secondary = ['Kit Up 3', 'Clip In 1', 'Clip In 2']  # Lower priority
+
+        unassigned_kitup_workers = [
+            worker for worker in in_today_workers if worker.name not in used_workers and 'KITUP' in worker.roles
+        ]
+
+        # Assign to Kit Up 1 & Kit Up 2 first
+        for role in kitup_roles_priority:
+            if role in role_to_column and role not in valid_roles and unassigned_kitup_workers:
+                selected_worker = unassigned_kitup_workers.pop(0)  # Assign first available KITUP worker
+                valid_roles[role] = selected_worker.name
+                used_workers.add(selected_worker.name)
+                logging.debug(f"✅ Assigning {selected_worker.name} to {role} (KITUP priority role)")
+
+        # Assign to other Kit Up/Clip In roles after that
+        for role in kitup_roles_secondary:
+            if role in role_to_column and role not in valid_roles and unassigned_kitup_workers:
+                selected_worker = unassigned_kitup_workers.pop(0)  # Assign first available KITUP worker
+                valid_roles[role] = selected_worker.name
+                used_workers.add(selected_worker.name)
+                logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Secondary KITUP role)")
+
+        # ✅ Now, Assign Host & Dekit AFTER all Kit Up roles are filled
+        unassigned_workers = [
             worker for worker in in_today_workers if worker.name not in used_workers
         ]
 
@@ -320,7 +344,7 @@ def generate_schedule():
         for role in ["Host", "Dekit"]:
             if role in role_to_column and role not in valid_roles:  # Only assign if still empty
                 available_untrained = [
-                    worker for worker in untrained_workers
+                    worker for worker in unassigned_workers
                     if worker.name not in assigned_host_dekit  # Ensure a different worker is assigned
                 ]
 
@@ -331,6 +355,7 @@ def generate_schedule():
                     assigned_host_dekit.add(selected_worker.name)  # Track to avoid duplicate assignment
 
                     logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Untrained Worker)")
+
 
 
         # Ensure Host & Dekit are printed for all morning time slots (9:00 AM - 12:45 PM)
@@ -437,6 +462,13 @@ def generate_schedule():
                 if column:
                     sheet.cell(row=slot_row, column=column).value = worker
 
+        # Track assigned workers in the morning
+        assigned_workers = set(valid_roles.values())  
+        unassigned_workers = [worker.name for worker in in_today_workers + late_shift_workers if worker.name not in assigned_workers]
+
+        if unassigned_workers:
+            logging.warning(f"⚠️ Unassigned workers found in the morning: {', '.join(unassigned_workers)}")
+
 
         # Track afternoon usage
         afternoon_valid_roles = {}  # Roles assigned in the afternoon
@@ -541,28 +573,40 @@ def generate_schedule():
             if worker.name not in afternoon_used_workers and worker.name not in valid_roles.values()  # Ensure different workers
         ]
 
-        # Ensure Host & Dekit are assigned to different workers in the afternoon
-        try:
-            assigned_host_dekit = set()  # Track assigned workers for Host & Dekit
+        # ✅ Ensure all Kit Up roles are filled FIRST
+        unassigned_kitup_workers_afternoon = [
+            worker for worker in in_today_workers if worker.name not in afternoon_used_workers and 'KITUP' in worker.roles
+        ]
 
-            for role in ["Host", "Dekit"]:
-                if role in role_to_column and role not in afternoon_valid_roles:  # Only assign if still empty
-                    available_untrained = [
-                        worker for worker in untrained_workers_afternoon
-                        if worker.name not in assigned_host_dekit  # Ensure a different worker is assigned
-                        and worker.name not in afternoon_valid_roles.values()  # Ensure not already assigned
-                    ]
+        for role in kitup_roles_priority + kitup_roles_secondary:
+            if role in role_to_column and role not in afternoon_valid_roles and unassigned_kitup_workers_afternoon:
+                selected_worker = unassigned_kitup_workers_afternoon.pop(0)  # Assign first available KITUP worker
+                afternoon_valid_roles[role] = selected_worker.name
+                afternoon_used_workers.add(selected_worker.name)
+                logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Afternoon KITUP role)")
 
-                    if available_untrained:
-                        selected_worker = choice(available_untrained)
-                        afternoon_valid_roles[role] = selected_worker.name  # Assign worker
-                        afternoon_used_workers.add(selected_worker.name)  # Mark them as used
-                        assigned_host_dekit.add(selected_worker.name)  # Track to avoid duplicate assignment
+        # ✅ Now, Assign Host & Dekit AFTER all Kit Up roles are filled
+        unassigned_workers_afternoon = [
+            worker for worker in in_today_workers if worker.name not in afternoon_used_workers
+        ]
 
-                        logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Afternoon Untrained Worker)")
+        assigned_host_dekit = set()  # Track assigned workers for Host & Dekit
 
-        except Exception as e:
-            logging.error(f"Error assigning Host & Dekit in the afternoon: {e}")
+        for role in ["Host", "Dekit"]:
+            if role in role_to_column and role not in afternoon_valid_roles:  # Only assign if still empty
+                available_untrained = [
+                    worker for worker in unassigned_workers_afternoon
+                    if worker.name not in assigned_host_dekit  # Ensure a different worker is assigned
+                ]
+
+                if available_untrained:
+                    selected_worker = choice(available_untrained)
+                    afternoon_valid_roles[role] = selected_worker.name  # Assign worker
+                    afternoon_used_workers.add(selected_worker.name)  # Mark them as used
+                    assigned_host_dekit.add(selected_worker.name)  # Track to avoid duplicate assignment
+
+                    logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Afternoon Untrained Worker)")
+
 
 
 
@@ -768,6 +812,12 @@ def generate_schedule():
 
         logging.info("========================================")
 
+        # Track assigned workers in the afternoon
+        assigned_workers = set(afternoon_valid_roles.values())  
+        unassigned_workers = [worker.name for worker in in_today_workers + late_shift_workers if worker.name not in assigned_workers]
+
+        if unassigned_workers:
+            logging.warning(f"⚠️ Unassigned workers found in the afternoon: {', '.join(unassigned_workers)}")
 
 
         # Save and send the Excel file
