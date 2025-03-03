@@ -579,7 +579,7 @@ def generate_schedule():
             # Write afternoon assignments (12:45-1:30) to the Excel sheet
             logging.info("Writing afternoon assignments (12:45-1:30) to the Excel sheet...")
 
-            # Identify the row corresponding to 12:45-1:30
+            # ✅ Ensure the row for 12:45-1:30 is correctly found
             afternoon_slot_row = None
 
             for row in range(1, sheet.max_row + 1):
@@ -588,14 +588,45 @@ def generate_schedule():
                     afternoon_slot_row = row
                     break
 
+            # ✅ Ensure the assigned workers at 12:45 - 1:30 are **written** into the Excel sheet
             if afternoon_slot_row:
                 for role, worker in afternoon_valid_roles.items():
-                    if role == "Course Support 1" and "Course Support 1" not in role_to_column:
-                        continue  # Skip if 'Course Support 1' is not in the Excel file
-
                     column = role_to_column.get(role)
                     if column:
-                        sheet.cell(row=afternoon_slot_row, column=column).value = worker
+                        sheet.cell(row=afternoon_slot_row, column=column).value = worker if worker else ""
+
+
+            # Assign initial course and tree trek workers for the afternoon (12:45-1:30)
+            course_workers = [afternoon_valid_roles.get(role) for role in course_roles]
+            tree_trek_workers = [afternoon_valid_roles.get(role) for role in tree_trek_roles]
+
+            # Ensure unassigned positions stay empty
+            course_workers = [worker if worker else None for worker in course_workers]
+            tree_trek_workers = [worker if worker else None for worker in tree_trek_workers]
+
+            # Define afternoon time slots in the Excel sheet based on actual labels
+            afternoon_slots_rows = [11, 12, 13, 14, 15]  # Corresponding rows for 13:30, 14:00, ..., 15:30
+
+            # Rotate roles for each subsequent time slot in the afternoon
+            for slot_row in afternoon_slots_rows:
+                # Rotate course and tree trek workers while keeping empty positions
+                course_workers = [course_workers[-1]] + course_workers[:-1]  # Shift workers
+                tree_trek_workers = [tree_trek_workers[-1]] + tree_trek_workers[:-1]  # Shift workers
+
+                # Assign rotated workers to course roles
+                for role, worker in zip(course_roles, course_workers):
+                    column = role_to_column.get(role)
+                    if column:
+                        sheet.cell(row=slot_row, column=column).value = worker if worker else ""
+
+                # Assign rotated workers to tree trek roles
+                for role, worker in zip(tree_trek_roles, tree_trek_workers):
+                    column = role_to_column.get(role)
+                    if column:
+                        sheet.cell(row=slot_row, column=column).value = worker if worker else ""
+
+
+
             # Check if any worker was ignored for afternoon assignment
             assigned_workers_afternoon = set(afternoon_valid_roles.values())
             unassigned_workers_afternoon = [worker.name for worker in in_today_workers + late_shift_workers if worker.name not in assigned_workers_afternoon]
@@ -610,8 +641,7 @@ def generate_schedule():
             logging.info("===========================================")
 
 
-            # Define afternoon time slots in the Excel sheet based on actual labels
-            afternoon_slots_rows = [11, 12, 13, 14, 15]  # Corresponding rows for 13:30, 14:00, ..., 15:30
+            
 
             # Ensure ICA workers assigned at 12:45 - 1:30 are stored for reuse
             ica_workers_after_lunch = {
