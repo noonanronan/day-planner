@@ -600,6 +600,10 @@ def generate_schedule():
             course_workers = [afternoon_valid_roles.get(role) for role in course_roles]
             tree_trek_workers = [afternoon_valid_roles.get(role) for role in tree_trek_roles]
 
+            # ✅ Store afternoon workers before rotation ####
+            saved_afternoon_workers = afternoon_valid_roles.copy() #####
+
+
             # Ensure unassigned positions stay empty
             course_workers = [worker if worker else None for worker in course_workers]
             tree_trek_workers = [worker if worker else None for worker in tree_trek_workers]
@@ -608,10 +612,17 @@ def generate_schedule():
             afternoon_slots_rows = [11, 12, 13, 14, 15]  # Corresponding rows for 13:30, 14:00, ..., 15:30
 
             # Rotate roles for each subsequent time slot in the afternoon
-            for slot_row in afternoon_slots_rows:
-                # Rotate course and tree trek workers while keeping empty positions
-                course_workers = [course_workers[-1]] + course_workers[:-1]  # Shift workers
-                tree_trek_workers = [tree_trek_workers[-1]] + tree_trek_workers[:-1]  # Shift workers
+            for slot_index, slot_row in enumerate(afternoon_slots_rows):  # ✅ Properly define slot_index
+                # ✅ Only rotate from the second time slot onwards
+                if slot_index > 0:  
+                    course_workers = [course_workers[-1]] + course_workers[:-1]
+                    tree_trek_workers = [tree_trek_workers[-1]] + tree_trek_workers[:-1]
+
+                # ✅ Ensure previously assigned workers remain if slots are empty
+                course_workers = [worker if worker else saved_afternoon_workers.get(role) for worker, role in zip(course_workers, course_roles)]
+                tree_trek_workers = [worker if worker else saved_afternoon_workers.get(role) for worker, role in zip(tree_trek_workers, tree_trek_roles)]
+
+
 
                 # Assign rotated workers to course roles
                 for role, worker in zip(course_roles, course_workers):
@@ -627,12 +638,14 @@ def generate_schedule():
 
 
 
-            # Check if any worker was ignored for afternoon assignment
-            assigned_workers_afternoon = set(afternoon_valid_roles.values())
-            unassigned_workers_afternoon = [worker.name for worker in in_today_workers + late_shift_workers if worker.name not in assigned_workers_afternoon]
+            # ✅ Identify workers who were not assigned in the afternoon
+            unassigned_workers = [worker.name for worker in in_today_workers + late_shift_workers if worker.name not in afternoon_valid_roles.values()]
 
-            if unassigned_workers_afternoon:
-                logging.warning(f"⚠️ Workers NOT assigned in the afternoon (shouldn't happen): {', '.join(unassigned_workers_afternoon)}")
+            # ✅ Attempt to assign unassigned workers to open slots
+            for role in afternoon_valid_roles:
+                if not afternoon_valid_roles[role] and unassigned_workers:
+                    afternoon_valid_roles[role] = unassigned_workers.pop(0)  # Assign first unassigned worker
+
 
 
             logging.info("\n======= AFTERNOON ASSIGNMENTS CHECK =======")
