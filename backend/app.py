@@ -253,7 +253,6 @@ def generate_schedule():
                 eligible_workers = get_eligible_workers(role)
                 logging.debug(f"Checking role: {role} | Eligible workers: {[w.name for w in eligible_workers]}")
 
-
                 # 🚫 Exclude late-shift workers for specific roles at 9:00 AM
                 if role in ["Course Support 2", "Zip Top 1", "Zip Top 2", "Zip Ground"]:
                     eligible_workers = [worker for worker in eligible_workers if worker not in late_shift_workers]
@@ -272,23 +271,67 @@ def generate_schedule():
                 else:
                     logging.warning(f"⚠️ No eligible workers found for {role}")
 
+        # Ensure unassigned KITUP-trained workers are placed in Kit Up roles BEFORE Clip In or other roles
+        kitup_roles_priority = ['Kit Up 1', 'Kit Up 2']  # Highest priority
+        kitup_roles_secondary = ['Kit Up 3', 'Clip In 1', 'Clip In 2']  # Lower priority
 
+        # 🔥 Fix: Sort KITUP workers by experience (if needed) or randomize the list
+        unassigned_kitup_workers = [
+            worker for worker in in_today_workers if worker.name not in used_workers and 'KITUP' in worker.roles
+        ]
 
+        # 🔥 Fix: Ensure no KITUP worker is left unassigned
+        if not unassigned_kitup_workers:
+            logging.warning("⚠️ No unassigned KITUP-trained workers available!")
+
+        # Assign to Kit Up 1 & Kit Up 2 first
+        for role in kitup_roles_priority:
+            if role in role_to_column and role not in valid_roles and unassigned_kitup_workers:
+                selected_worker = unassigned_kitup_workers.pop(0)  # Assign first available KITUP worker
+                valid_roles[role] = selected_worker.name
+                used_workers.add(selected_worker.name)
+                logging.debug(f"✅ Assigning {selected_worker.name} to {role} (KITUP priority role)")
+
+        # Assign to other Kit Up/Clip In roles after that
+        for role in kitup_roles_secondary:
+            if role in role_to_column and role not in valid_roles and unassigned_kitup_workers:
+                selected_worker = unassigned_kitup_workers.pop(0)  # Assign first available KITUP worker
+                valid_roles[role] = selected_worker.name
+                used_workers.add(selected_worker.name)
+                logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Secondary KITUP role)")
+
+        # 🔥 Fix: Log if any KITUP-trained workers are left unassigned (shouldn’t happen)
+        if unassigned_kitup_workers:
+            logging.warning(f"⚠️ These KITUP-trained workers were NOT assigned but should be: {[w.name for w in unassigned_kitup_workers]}")
 
 
         # Identify untrained workers (people without KITUP, AATT, MT, or ICA)
         untrained_workers = [
-            worker for worker in in_today_workers
-            if not any(role in worker.roles for role in role_to_training)  # Only untrained workers
+            worker for worker in in_today_workers if worker.name not in used_workers
         ]
 
-        # Assign untrained workers to Host & Dekit only if still unfilled
+        # 🔥 Fix: Ensure Host & Dekit are assigned **after** Kit Up roles are filled
+        untrained_workers = [
+            worker for worker in in_today_workers if worker.name not in used_workers
+        ]
+
+        assigned_host_dekit = set()  # Track assigned workers for Host & Dekit
+
         for role in ["Host", "Dekit"]:
             if role in role_to_column and role not in valid_roles:  # Only assign if still empty
-                if untrained_workers:
-                    selected_worker = choice(untrained_workers)
+                available_untrained = [
+                    worker for worker in untrained_workers
+                    if worker.name not in assigned_host_dekit  # Ensure a different worker is assigned
+                ]
+
+                if available_untrained:
+                    selected_worker = choice(available_untrained)
                     valid_roles[role] = selected_worker.name  # Assign worker
                     used_workers.add(selected_worker.name)  # Mark them as used
+                    assigned_host_dekit.add(selected_worker.name)  # Track to avoid duplicate assignment
+
+                    logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Untrained Worker)")
+
 
         # Ensure Host & Dekit are printed for all morning time slots (9:00 AM - 12:45 PM)
         for slot_row in range(2, 9):  # Rows for 9:00, 9:30, ..., 12:45
@@ -296,6 +339,15 @@ def generate_schedule():
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = valid_roles.get(role, "")
+
+
+        # Ensure Host & Dekit are printed for all morning time slots (9:00 AM - 12:45 PM)
+        for slot_row in range(2, 9):  # Rows for 9:00, 9:30, ..., 12:45
+            for role in ["Host", "Dekit"]:
+                column = role_to_column.get(role)
+                if column:
+                    sheet.cell(row=slot_row, column=column).value = valid_roles.get(role, "")
+
 
 
         # Track morning assignments properly (store all roles)
@@ -471,32 +523,46 @@ def generate_schedule():
                 afternoon_valid_roles[role] = selected_worker.name
                 afternoon_used_workers.add(selected_worker.name)
 
-        # Identify untrained workers who are still available in the afternoon
+        # Ensure unassigned KITUP-trained workers are placed in Kit Up and Clip In roles
+        unassigned_kitup_workers_afternoon = [
+            worker for worker in in_today_workers if worker.name not in afternoon_used_workers and 'KITUP' in worker.roles
+        ]
+
+        for role in kitup_roles_priority + kitup_roles_secondary:
+            if role in role_to_column and role not in afternoon_valid_roles and unassigned_kitup_workers_afternoon:
+                selected_worker = unassigned_kitup_workers_afternoon.pop(0)  # Assign first available KITUP worker
+                afternoon_valid_roles[role] = selected_worker.name
+                afternoon_used_workers.add(selected_worker.name)
+                logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Afternoon KITUP role)")
+
+        # Identify untrained workers available in the afternoon
         untrained_workers_afternoon = [
             worker for worker in in_today_workers
-            if worker.name not in afternoon_used_workers  # Ensure they haven't been used yet
-            and not any(role in worker.roles for role in role_to_training)  # Only untrained workers
+            if worker.name not in afternoon_used_workers and worker.name not in valid_roles.values()  # Ensure different workers
         ]
 
-        # Assign untrained workers to Host & Dekit only if still unfilled
-        for role in ["Host", "Dekit"]:
-            if role in role_to_column and role not in afternoon_valid_roles:  # Only assign if still empty
-                if untrained_workers_afternoon:
-                    selected_worker = choice(untrained_workers_afternoon)
-                    afternoon_valid_roles[role] = selected_worker.name  # Assign worker
-                    afternoon_used_workers.add(selected_worker.name)  # Mark them as used
-        
-        # Identify final spare workers from the afternoon (workers who were NOT assigned a role)
-        afternoon_spare_workers = [
-            worker.name for worker in in_today_workers + late_shift_workers
-            if worker.name not in afternoon_valid_roles.values()
-        ]
+        # Ensure Host & Dekit are assigned to different workers in the afternoon
+        try:
+            assigned_host_dekit = set()  # Track assigned workers for Host & Dekit
 
-        # Log afternoon spare workers clearly
-        if afternoon_spare_workers:
-            logging.info(f"Afternoon Spare Workers ({len(afternoon_spare_workers)}): {', '.join(afternoon_spare_workers)}")
-        else:
-            logging.info("No Afternoon Spare Workers found.")
+            for role in ["Host", "Dekit"]:
+                if role in role_to_column and role not in afternoon_valid_roles:  # Only assign if still empty
+                    available_untrained = [
+                        worker for worker in untrained_workers_afternoon
+                        if worker.name not in assigned_host_dekit  # Ensure a different worker is assigned
+                        and worker.name not in afternoon_valid_roles.values()  # Ensure not already assigned
+                    ]
+
+                    if available_untrained:
+                        selected_worker = choice(available_untrained)
+                        afternoon_valid_roles[role] = selected_worker.name  # Assign worker
+                        afternoon_used_workers.add(selected_worker.name)  # Mark them as used
+                        assigned_host_dekit.add(selected_worker.name)  # Track to avoid duplicate assignment
+
+                        logging.debug(f"✅ Assigning {selected_worker.name} to {role} (Afternoon Untrained Worker)")
+
+        except Exception as e:
+            logging.error(f"Error assigning Host & Dekit in the afternoon: {e}")
 
 
 
@@ -508,47 +574,49 @@ def generate_schedule():
                     sheet.cell(row=slot_row, column=column).value = afternoon_valid_roles.get(role, "")
 
 
-        # Write afternoon assignments (12:45-1:30) to the Excel sheet
-        logging.info("Writing afternoon assignments (12:45-1:30) to the Excel sheet...")
 
-        # Identify the row corresponding to 12:45-1:30
-        afternoon_slot_row = None
 
-        for row in range(1, sheet.max_row + 1):
-            cell_value = sheet.cell(row=row, column=1).value
-            if cell_value and str(cell_value).strip() == "12:45-1:30":
-                afternoon_slot_row = row
-                break
+            # Write afternoon assignments (12:45-1:30) to the Excel sheet
+            logging.info("Writing afternoon assignments (12:45-1:30) to the Excel sheet...")
 
-        if afternoon_slot_row:
+            # Identify the row corresponding to 12:45-1:30
+            afternoon_slot_row = None
+
+            for row in range(1, sheet.max_row + 1):
+                cell_value = sheet.cell(row=row, column=1).value
+                if cell_value and str(cell_value).strip() == "12:45-1:30":
+                    afternoon_slot_row = row
+                    break
+
+            if afternoon_slot_row:
+                for role, worker in afternoon_valid_roles.items():
+                    if role == "Course Support 1" and "Course Support 1" not in role_to_column:
+                        continue  # Skip if 'Course Support 1' is not in the Excel file
+
+                    column = role_to_column.get(role)
+                    if column:
+                        sheet.cell(row=afternoon_slot_row, column=column).value = worker
+            # Check if any worker was ignored for afternoon assignment
+            assigned_workers_afternoon = set(afternoon_valid_roles.values())
+            unassigned_workers_afternoon = [worker.name for worker in in_today_workers + late_shift_workers if worker.name not in assigned_workers_afternoon]
+
+            if unassigned_workers_afternoon:
+                logging.warning(f"⚠️ Workers NOT assigned in the afternoon (shouldn't happen): {', '.join(unassigned_workers_afternoon)}")
+
+
+            logging.info("\n======= AFTERNOON ASSIGNMENTS CHECK =======")
             for role, worker in afternoon_valid_roles.items():
-                if role == "Course Support 1" and "Course Support 1" not in role_to_column:
-                    continue  # Skip if 'Course Support 1' is not in the Excel file
-
-                column = role_to_column.get(role)
-                if column:
-                    sheet.cell(row=afternoon_slot_row, column=column).value = worker
-        # Check if any worker was ignored for afternoon assignment
-        assigned_workers_afternoon = set(afternoon_valid_roles.values())
-        unassigned_workers_afternoon = [worker.name for worker in in_today_workers + late_shift_workers if worker.name not in assigned_workers_afternoon]
-
-        if unassigned_workers_afternoon:
-            logging.warning(f"⚠️ Workers NOT assigned in the afternoon (shouldn't happen): {', '.join(unassigned_workers_afternoon)}")
+                logging.info(f"{role} -> {worker}")
+            logging.info("===========================================")
 
 
-        logging.info("\n======= AFTERNOON ASSIGNMENTS CHECK =======")
-        for role, worker in afternoon_valid_roles.items():
-            logging.info(f"{role} -> {worker}")
-        logging.info("===========================================")
+            # Define afternoon time slots in the Excel sheet based on actual labels
+            afternoon_slots_rows = [11, 12, 13, 14, 15]  # Corresponding rows for 13:30, 14:00, ..., 15:30
 
-
-        # Define afternoon time slots in the Excel sheet based on actual labels
-        afternoon_slots_rows = [11, 12, 13, 14, 15]  # Corresponding rows for 13:30, 14:00, ..., 15:30
-
-        # Ensure ICA workers assigned at 12:45 - 1:30 are stored for reuse
-        ica_workers_after_lunch = {
-            role: afternoon_valid_roles[role] for role in ica_roles if role in afternoon_valid_roles
-        }
+            # Ensure ICA workers assigned at 12:45 - 1:30 are stored for reuse
+            ica_workers_after_lunch = {
+                role: afternoon_valid_roles[role] for role in ica_roles if role in afternoon_valid_roles
+            }
 
 
         # Assign workers for each afternoon time slot
@@ -641,9 +709,20 @@ def generate_schedule():
                     if column:
                         sheet.cell(row=slot_row, column=column).value = worker.name
 
+
         logging.info("\n======== SPARE WORKERS SUMMARY ========")
         logging.info(f"✅ Morning Spare Workers ({len(morning_spare_workers)}): {', '.join(morning_spare_workers) if morning_spare_workers else 'None'}")
-        logging.info(f"✅ Afternoon Spare Workers ({len(afternoon_spare_workers)}): {', '.join(afternoon_spare_workers) if afternoon_spare_workers else 'None'}'")
+        afternoon_spare_workers = [
+            worker.name for worker in in_today_workers + late_shift_workers
+            if worker.name not in afternoon_valid_roles.values()
+        ]
+
+        # Log afternoon spare workers clearly
+        if afternoon_spare_workers:
+            logging.info(f"✅ Afternoon Spare Workers ({len(afternoon_spare_workers)}): {', '.join(afternoon_spare_workers)}")
+        else:
+            logging.info("No Afternoon Spare Workers found.")
+
         logging.info("========================================")
 
 
