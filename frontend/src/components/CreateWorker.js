@@ -6,11 +6,15 @@ import { createWorker } from "../services/workerService";
 
 const predefinedRoles = ["KITUP", "AATT", "MT", "ICA"];
 
-
 const predefinedTimes = [
     { label: "8:00 AM - 4:00 PM", start: new Date().setHours(8, 0), end: new Date().setHours(16, 0) },
+    { label: "8:30 AM - 4:30 PM", start: new Date().setHours(8, 30), end: new Date().setHours(16, 30) },
+    { label: "8:45 AM - 5:45 PM", start: new Date().setHours(8, 45), end: new Date().setHours(17, 45) },
+    { label: "9:00 AM - 5:00 PM", start: new Date().setHours(9, 0), end: new Date().setHours(17, 0) },
+    { label: "9:15 AM - 6:15 PM", start: new Date().setHours(9, 15), end: new Date().setHours(18, 15) },
     { label: "10:00 AM - 7:00 PM", start: new Date().setHours(10, 0), end: new Date().setHours(19, 0) },
 ];
+
 
 const CreateWorker = () => {
     const [name, setName] = useState("");
@@ -80,25 +84,26 @@ const CreateWorker = () => {
                 </div>
                 <div className="mb-3">
                     <label className="form-label">Roles</label>
-                    <div>
+                    <div className="d-flex flex-wrap gap-3">
                         {predefinedRoles.map((role) => (
-                            <div className="form-check" key={role}>
-                                <input
-                                    className="form-check-input"
-                                    type="checkbox"
-                                    id={role}
-                                    checked={selectedRoles.includes(role)}
-                                    onChange={() => handleRoleChange(role)}
-                                />
-                                <label className="form-check-label" htmlFor={role}>
-                                    {role}
-                                </label>
-                            </div>
+                        <div className="form-check" key={role}>
+                            <input
+                            className="form-check-input"
+                            type="checkbox"
+                            id={role}
+                            checked={selectedRoles.includes(role)}
+                            onChange={() => handleRoleChange(role)}
+                            />
+                            <label className="form-check-label" htmlFor={role}>
+                            {role}
+                            </label>
+                        </div>
                         ))}
                     </div>
-                </div>
+                    </div>
                 <div className="mb-3">
-                    <label className="form-label">Availability</label>
+                    <h5 className="mb-3 mt-4">Quick Availability Pickers</h5>
+
                     <div className="mb-2">
                         {predefinedTimes.map((time, index) => (
                             <button
@@ -111,8 +116,9 @@ const CreateWorker = () => {
                             </button>
                         ))}
                     </div>
+                    <h5 className="mb-3 mt-4">Manual Availability</h5>
                     {availability.map((range, index) => (
-                        <div key={index} className="d-flex align-items-center mb-2">
+                        <div key={index} className="card p-3 mb-2 d-flex flex-row align-items-center gap-2">
                             <DatePicker
                                 selected={range.start}
                                 onChange={(date) => handleDateChange(index, "start", date)}
@@ -125,7 +131,7 @@ const CreateWorker = () => {
                                 timeCaption="Time"
                                 dateFormat="Pp"
                                 placeholderText="Start Time"
-                                className="form-control me-2"
+                                className="form-control"
                             />
                             <DatePicker
                                 selected={range.end}
@@ -139,7 +145,7 @@ const CreateWorker = () => {
                                 timeCaption="Time"
                                 dateFormat="Pp"
                                 placeholderText="End Time"
-                                className="form-control me-2"
+                                className="form-control"
                             />
                             <button
                                 type="button"
@@ -150,7 +156,12 @@ const CreateWorker = () => {
                             </button>
                         </div>
                     ))}
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={handleAddAvailability}>
+
+                    <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm mt-2"
+                        onClick={handleAddAvailability}
+                    >
                         Add Custom Time
                     </button>
                 </div>

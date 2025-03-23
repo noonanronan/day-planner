@@ -12,6 +12,7 @@ import logging
 import random
 from random import choice
 import pymysql
+from openpyxl.styles import Font, PatternFill
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
@@ -646,6 +647,7 @@ def generate_schedule():
 
             # ✅ Store afternoon workers before rotation ####
             saved_afternoon_workers = afternoon_valid_roles.copy() #####
+            tree_trek_workers = [saved_afternoon_workers.get(role) for role in tree_trek_roles]
 
 
             # Ensure unassigned positions stay empty
@@ -660,12 +662,9 @@ def generate_schedule():
                 # ✅ Only rotate from the second time slot onwards
                 if slot_index > 0:  
                     course_workers = [course_workers[-1]] + course_workers[:-1]
-                    tree_trek_workers = [tree_trek_workers[-1]] + tree_trek_workers[:-1]
 
                 # ✅ Ensure previously assigned workers remain if slots are empty
                 course_workers = [worker if worker else saved_afternoon_workers.get(role) for worker, role in zip(course_workers, course_roles)]
-                tree_trek_workers = [worker if worker else saved_afternoon_workers.get(role) for worker, role in zip(tree_trek_workers, tree_trek_roles)]
-
 
 
                 # Assign rotated workers to course roles
@@ -818,6 +817,67 @@ def generate_schedule():
 
         if unassigned_workers:
             logging.warning(f"⚠️ Unassigned workers found in the afternoon: {', '.join(unassigned_workers)}")
+        
+
+        # spare summary section (after planner, around line 24+)
+        summary_start_row = 24
+
+        header_cell = sheet.cell(row=summary_start_row - 1, column=1)
+        header_cell.value = "Spare"
+        header_cell.font = Font(bold=True, size=14, color="FFFFFF")
+        header_cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+
+
+        # Morning Spare Summary
+        morning_summary = (
+            f"Morning Spare Workers: {', '.join(morning_spare_workers)}"
+            if morning_spare_workers
+            else "Morning Spare Workers: No spare"
+        )
+        sheet.cell(row=summary_start_row, column=1).value = morning_summary
+
+        # Afternoon Spare Summary
+        afternoon_summary = (
+            f"Afternoon Spare Workers: {', '.join(afternoon_spare_workers)}"
+            if afternoon_spare_workers
+            else "Afternoon Spare Workers: No spare"
+        )
+        sheet.cell(row=summary_start_row + 1, column=1).value = afternoon_summary
+
+        # Define where to write the "Workers In Today" summary
+        summary_col = 27  # Column T
+        summary_start_row = 1
+
+        # Header
+        header_cell = sheet.cell(row=summary_start_row, column=summary_col)
+        header_cell.value = "Instructors"
+        header_cell.font = Font(bold=True, size=12, color="FFFFFF")
+        header_cell.fill = PatternFill(start_color="28A745", end_color="28A745", fill_type="solid")
+
+        # Sort workers by actual start time
+        in_today_sorted = []
+
+        for worker in in_today_workers + late_shift_workers:
+            for availability in worker.availability:
+                try:
+                    start = parser.parse(availability['start']).astimezone(timezone.utc)
+                    end = parser.parse(availability['end']).astimezone(timezone.utc)
+
+                    if start.date() <= selected_date.date() <= end.date():
+                        in_today_sorted.append((start, worker.name, start, end))
+                        break
+                except Exception as e:
+                    logging.warning(f"Skipping invalid availability for {worker.name}: {e}")
+
+        # Sort by start time
+        in_today_sorted.sort(key=lambda x: x[0])
+
+        # Write each worker
+        for i, (_, name, start, end) in enumerate(in_today_sorted, start=1):
+            row = summary_start_row + i
+            time_range = f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')}"
+            sheet.cell(row=row, column=summary_col).value = f"{name} - {time_range}"
+
 
 
         # Save and send the Excel file
