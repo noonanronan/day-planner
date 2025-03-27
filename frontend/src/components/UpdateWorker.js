@@ -29,22 +29,27 @@ const UpdateWorker = () => {
                 const data = await getAllWorkers();
                 const worker = data.workers.find((worker) => worker.id === parseInt(id));
                 if (worker) {
-                    setName(worker.name);
-                    setSelectedRoles(worker.roles); // Set selected roles
-                    setAvailability(
-                        worker.availability.map((range) => ({
-                            start: new Date(range.start), // Convert to Date objects
+                    const now = new Date();
+    
+                    const filteredAvailability = worker.availability
+                        .map((range) => ({
+                            start: new Date(range.start),
                             end: new Date(range.end),
                         }))
-                    ); // Set availability
+                        .filter((range) => range.end >= now);
+    
+                    setName(worker.name);
+                    setSelectedRoles(worker.roles);
+                    setAvailability(filteredAvailability);
                 }
             } catch (error) {
                 console.error("Error fetching worker:", error);
             }
         };
-
+    
         fetchWorker();
     }, [id]);
+    
 
     const handleRoleChange = (role) => {
         setSelectedRoles((prevRoles) =>

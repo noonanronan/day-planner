@@ -19,12 +19,25 @@ const WorkerList = () => {
         const fetchWorkers = async () => {
             try {
                 const data = await getAllWorkers();
-                setWorkers(data.workers);
+                const now = new Date();
+    
+                const cleanedWorkers = data.workers.map((worker) => {
+                    const filteredAvailability = worker.availability
+                        .map(({ start, end }) => ({
+                            start,
+                            end,
+                        }))
+                        .filter(({ end }) => new Date(end) >= now);
+    
+                    return { ...worker, availability: filteredAvailability };
+                });
+    
+                setWorkers(cleanedWorkers);
             } catch (error) {
                 console.error("Error fetching workers:", error);
             }
         };
-
+    
         const fetchTemplates = async () => {
             try {
                 const response = await axios.get("http://127.0.0.1:5001/list-templates");
@@ -33,20 +46,21 @@ const WorkerList = () => {
                 console.error("Error fetching templates:", error);
             }
         };
-
+    
         fetchWorkers();
         fetchTemplates();
     }, []);
+    
 
     const handleDelete = async (id) => {
         try {
             await deleteWorker(id);
-            setWorkers(workers.filter((worker) => worker.id !== id));
+            setWorkers((prev) => prev.filter((worker) => worker.id !== id));
         } catch (error) {
-            console.error("Error deleting worker:", error);
-            alert("Failed to delete worker.");
+            alert(error.message); 
         }
-    };
+    };    
+    
 
     const handleDownloadSchedule = async () => {
         if (!selectedTemplate) {
@@ -327,7 +341,7 @@ const WorkerList = () => {
                                             <button className="btn btn-primary btn-sm" onClick={() => navigate(`/update-worker/${worker.id}`)}>
                                                 Update
                                             </button>
-                                            <button className="btn btn-danger btn-sm" onClick={() => deleteWorker(worker.id)}>
+                                            <button className="btn btn-danger btn-sm" onClick={() => handleDelete(worker.id)}>
                                                 Delete
                                             </button>
                                         </div>

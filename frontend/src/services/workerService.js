@@ -50,10 +50,12 @@ export const deleteWorker = async (id) => {
         const response = await axiosInstance.delete(`/workers/${id}`);
         return response.data;
     } catch (error) {
-        console.error("Error deleting worker:", error.response?.data || error.message);
-        throw error.response?.data || error.message; 
+        const errMsg = error.response?.data?.error || "Failed to delete worker.";
+        console.error("Error deleting worker:", errMsg);
+        throw new Error(errMsg); // Wrap in Error to allow clean catching in frontend
     }
 };
+
 
 // General API request 
 export const apiRequest = async (method, endpoint, data = null) => {
