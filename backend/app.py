@@ -95,6 +95,16 @@ def generate_schedule():
         selected_file = request.json.get('template')
         selected_date_str = request.json.get('date')  # ⬅️ Get selected date from request
 
+        ica_morning_count = request.json.get("ica_morning_count", 4)
+        ica_afternoon_count = request.json.get("ica_afternoon_count", 4)
+
+        # Clamp values to stay between 2 and 4
+        ica_morning_count = max(2, min(4, int(ica_morning_count)))
+        ica_afternoon_count = max(2, min(4, int(ica_afternoon_count)))
+
+        
+
+
         # Reset all stateful variables to prevent carryover issues
         valid_roles = {}
         used_workers = set()
@@ -103,6 +113,7 @@ def generate_schedule():
         course_workers = []  # Ensures fresh assignment
         morning_assignments = {}  # Ensures morning roles are properly tracked
         assigned_worker_names = set()  # Track assigned workers
+
 
         # Validate input
         if not selected_file:
@@ -171,18 +182,21 @@ def generate_schedule():
                 role_to_column[role.strip()] = col
 
 
-        # Prioritized roles for assignment
-        prioritized_roles = [
-            'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4',
-            'Mini Trek',
-            'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
-            'TREE TREK 1', 'TREE TREK 2',
-            'Clip In 1', 'Clip In 2', 'Kit Up 3', 'Kit Up 2', 'Kit Up 1', 
-        ]
+        ica_roles_morning = [f"ICA {i}" for i in range(1, ica_morning_count + 1)]
+
+        prioritized_roles_morning = (
+            ica_roles_morning +
+            [
+                'Mini Trek', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
+                'TREE TREK 1', 'TREE TREK 2',
+                'Clip In 1', 'Clip In 2', 'Kit Up 3', 'Kit Up 2', 'Kit Up 1',
+            ]
+        )
+
 
         # Only add 'Course Support 1' if it exists in the Excel file
         if "Course Support 1" in role_to_column:
-            prioritized_roles.insert(5, "Course Support 1")  # Insert at the correct position
+            prioritized_roles_morning.insert(5, "Course Support 1")  # Insert at the correct position
 
         # Role restrictions for late-shift workers
         restricted_roles_for_late_shift = {
@@ -249,7 +263,7 @@ def generate_schedule():
 
 
         # Assign workers to the first time slot (9:00-9:30)
-        for role in prioritized_roles:
+        for role in prioritized_roles_morning:
             if role in role_to_column:
                 eligible_workers = get_eligible_workers(role)
                 logging.debug(f"Checking role: {role} | Eligible workers: {[w.name for w in eligible_workers]}")
@@ -488,8 +502,7 @@ def generate_schedule():
         course_roles = list(course_roles)
 
         mini_trek_roles = {'Mini Trek'}
-        ica_roles = {'ICA 1', 'ICA 2', 'ICA 3', 'ICA 4'}
-
+        ica_roles = [f"ICA {i}" for i in range(1, ica_morning_count + 1)]
 
 
         # Function to get eligible workers for afternoon assignments
@@ -528,7 +541,7 @@ def generate_schedule():
                     and not any(m_role in mini_trek_roles for m_role in morning_assignments.get(worker.name, []))
                 ]
 
-            elif role in ica_roles:
+            elif role in ica_roles_afternoon:
                 eligible = [
                     worker for worker in in_today_workers  # Ensure only early workers can be assigned
                     if worker.name not in afternoon_used_workers
@@ -547,9 +560,20 @@ def generate_schedule():
             return eligible
             
 
+        ica_roles_afternoon = [f"ICA {i}" for i in range(1, ica_afternoon_count + 1)]
+
+        prioritized_roles_afternoon = (
+            ica_roles_afternoon +
+            [
+                'Mini Trek', 'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1',
+                'TREE TREK 1', 'TREE TREK 2',
+                'Clip In 1', 'Clip In 2', 'Kit Up 3', 'Kit Up 2', 'Kit Up 1',
+            ]
+        )
+
 
         # Assign workers for 12:45-1:30
-        for role in prioritized_roles:
+        for role in prioritized_roles_afternoon:
             eligible_workers = get_afternoon_eligible_workers(role)
             if eligible_workers:
                 selected_worker = choice(eligible_workers)  # Randomly select a worker
@@ -709,13 +733,13 @@ def generate_schedule():
         for slot_index, slot_row in enumerate(afternoon_slots_rows):
 
             # Assign ICA roles using the same workers from 12:45 - 1:30
-            for role in ica_roles:
+            for role in ica_roles_afternoon:
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = ica_workers_after_lunch.get(role, "")
 
             # Assign remaining non-ICA roles as usual
-            for role in prioritized_roles:
+            for role in prioritized_roles_afternoon:
                 if role in ica_roles:  # Skip ICA roles since they are already assigned
                     continue
 
@@ -736,7 +760,7 @@ def generate_schedule():
                 afternoon_valid_roles['Kit Up 3'], afternoon_valid_roles['Clip In 2'] = afternoon_valid_roles.get('Clip In 2'), temp_kit_up_3
 
             # Assign workers for the current time slot
-            for role in prioritized_roles:
+            for role in prioritized_roles_afternoon:
                 eligible_workers = get_afternoon_eligible_workers(role)
                 
                 # Filter out workers not trained for ICA roles if assigning to ICA roles

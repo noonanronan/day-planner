@@ -13,6 +13,8 @@ const WorkerList = () => {
     const [file, setFile] = useState(null);
     const [error, setError] = useState(null);
     const [showUploadSection, setShowUploadSection] = useState(false);
+    const [morningIcaCount, setMorningIcaCount] = useState(4);
+    const [afternoonIcaCount, setAfternoonIcaCount] = useState(4);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -71,11 +73,18 @@ const WorkerList = () => {
         try {
             const response = await axios.post(
                 "http://127.0.0.1:5001/generate-schedule",
-                { template: selectedTemplate, date: selectedDate },
                 {
-                    responseType: "blob",
+                  template: selectedTemplate,
+                  date: selectedDate,
+                  ica_morning_count: morningIcaCount,
+                  ica_afternoon_count: afternoonIcaCount,
+                },
+                {
+                  responseType: "blob",
                 }
-            );
+              );
+              
+            
 
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement("a");
@@ -275,6 +284,28 @@ const WorkerList = () => {
                             ))}
                         </select>
                     </div>
+                    <div className="col-md-3">
+                        <label className="form-label">Morning ICA Count:</label>
+                        <input
+                            type="number"
+                            className="form-control"
+                            value={morningIcaCount}
+                            min={2}
+                            max={4}
+                            onChange={(e) => setMorningIcaCount(e.target.value)}
+                        />
+                        </div>
+                        <div className="col-md-3">
+                        <label className="form-label">Afternoon ICA Count:</label>
+                        <input
+                            type="number"
+                            className="form-control"
+                            value={afternoonIcaCount}
+                            min={2}
+                            max={4}
+                            onChange={(e) => setAfternoonIcaCount(e.target.value)}
+                        />
+                        </div>
                     <div className="col-md-2 d-grid">
                         <button className="btn btn-success mt-4" onClick={handleDownloadSchedule}>
                             Generate Schedule
