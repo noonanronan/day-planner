@@ -8,6 +8,7 @@ const predefinedRoles = ["KITUP", "AATT", "MT", "ICA"];
 
 const predefinedTimes = [
     { label: "8:00 AM - 4:00 PM", start: new Date().setHours(8, 0), end: new Date().setHours(16, 0) },
+    { label: "8:00 AM - 4:30 PM", start: new Date().setHours(8, 0), end: new Date().setHours(16, 30) },
     { label: "8:30 AM - 4:30 PM", start: new Date().setHours(8, 30), end: new Date().setHours(16, 30) },
     { label: "8:45 AM - 5:45 PM", start: new Date().setHours(8, 45), end: new Date().setHours(17, 45) },
     { label: "9:00 AM - 5:00 PM", start: new Date().setHours(9, 0), end: new Date().setHours(17, 0) },
@@ -96,7 +97,7 @@ const UpdateWorker = () => {
                 availability, // Already formatted as an array of date ranges
             };
             await updateWorker(id, updatedWorker);
-            navigate("/");
+            navigate("/workers");
         } catch (error) {
             console.error("Error updating worker:", error);
             alert("Failed to update worker. Please check your input format.");

@@ -941,6 +941,16 @@ def delete_worker(worker_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    password = data.get("password")
+
+    if password == "CenterParcs":  # Case-sensitive match
+        return jsonify({"success": True}), 200
+    else:
+        return jsonify({"success": False, "error": "Invalid password"}), 401
+
 # Home route to confirm the app is running
 @app.route("/")
 def home():

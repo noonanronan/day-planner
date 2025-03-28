@@ -17,6 +17,11 @@ const WorkerList = () => {
     const [afternoonIcaCount, setAfternoonIcaCount] = useState(4);
     const navigate = useNavigate();
 
+    const handleLogout = () => {
+        localStorage.removeItem("isAuthenticated");
+        navigate("/");
+    };    
+
     useEffect(() => {
         const fetchWorkers = async () => {
             try {
@@ -231,6 +236,7 @@ const WorkerList = () => {
         <div className="container mt-4">
             {/* Page Header */}
             <div className="d-flex justify-content-between align-items-center mb-3">
+            
                 <h1 className="mb-0">Instructor List</h1>
                 <button
                     className="btn btn-outline-secondary btn-sm"
