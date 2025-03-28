@@ -470,11 +470,11 @@ def generate_schedule():
         # Define role categories for clarity and maintainability
         shed_roles = {'Host', 'Dekit', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2'}
         tree_trek_roles = {'TREE TREK 1', 'TREE TREK 2'}
-        course_roles = {'Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1'}
+        course_roles = ['Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1']
 
         # Only add 'Course Support 1' if it exists in the Excel file
         if "Course Support 1" in role_to_column:
-            course_roles.add("Course Support 1")
+            course_roles.insert(0, "Course Support 1")
 
         # Convert course_roles to a **list** for ordering
         course_roles = list(course_roles)
@@ -644,8 +644,8 @@ def generate_schedule():
                     if column:
                         sheet.cell(row=afternoon_slot_row, column=column).value = worker if worker else ""
 
-            # Assign initial course and tree trek workers for the afternoon (12:45-1:30)
-            course_workers = [afternoon_valid_roles.get(role) for role in course_roles]
+            # # Assign initial course and tree trek workers for the afternoon (12:45-1:30)
+            # course_workers = [afternoon_valid_roles.get(role) for role in course_roles]
             tree_trek_workers = [afternoon_valid_roles.get(role) for role in tree_trek_roles]
 
             # Store afternoon workers before rotation ####
@@ -660,14 +660,14 @@ def generate_schedule():
             afternoon_slots_rows = [11, 12, 13, 14, 15]  # Corresponding rows for 13:30, 14:00, ..., 15:30
 
             # Rotate roles for each subsequent time slot in the afternoon
-            for slot_index, slot_row in enumerate(afternoon_slots_rows):  # Properly define slot_index
-                # Only rotate from the second time slot onwards
-                if slot_index > 0:  
-                    course_workers = [course_workers[-1]] + course_workers[:-1]
+            for slot_index, slot_row in enumerate(afternoon_slots_rows):
+                if slot_index > 0:
+                    course_workers = course_workers[-1:] + course_workers[:-1]  # rotate the list
 
-                # Ensure previously assigned workers remain if slots are empty
-                course_workers = [worker if worker else saved_afternoon_workers.get(role) for worker, role in zip(course_workers, course_roles)]
-
+                for role, worker in zip(course_roles, course_workers):
+                    column = role_to_column.get(role)
+                    if column:
+                        sheet.cell(row=slot_row, column=column).value = worker or ""
 
                 # Assign rotated workers to course roles
                 for role, worker in zip(course_roles, course_workers):
@@ -707,6 +707,12 @@ def generate_schedule():
                 column = role_to_column.get(role)
                 if column:
                     sheet.cell(row=slot_row, column=column).value = ica_workers_after_lunch.get(role, "")
+
+            # Skip reassigning course roles that were already rotated and written
+            prioritized_roles_afternoon = [
+                role for role in prioritized_roles_afternoon
+                if role not in course_roles and role not in ica_roles
+            ]
 
             # Assign remaining non-ICA roles as usual
             for role in prioritized_roles_afternoon:
