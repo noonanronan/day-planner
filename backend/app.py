@@ -374,19 +374,6 @@ def generate_schedule():
             logging.info(f"{role} -> {worker}")
         logging.info("========================================")
 
-        # ✅ Recalculate spare workers AFTER fallback assignment
-        morning_spare_workers = [
-            worker.name for worker in in_today_workers + late_shift_workers
-            if worker.name not in used_workers
-        ]
-
-
-        # Log morning spare workers clearly
-        if morning_spare_workers:
-            logging.info(f"Morning Spare Workers ({len(morning_spare_workers)}): {', '.join(morning_spare_workers)}")
-        else:
-            logging.info("No Morning Spare Workers found.")
-        
         # Fallback: Force assign Host and Dekit if still unassigned and spares exist
         for role in ["Host", "Dekit"]:
             if role in role_to_column and role not in valid_roles:
@@ -400,6 +387,20 @@ def generate_schedule():
                     valid_roles[role] = selected_worker.name
                     used_workers.add(selected_worker.name)
                     logging.warning(f"Fallback assigning {selected_worker.name} to {role} due to earlier miss.")
+
+        # Recalculate spare workers AFTER fallback assignment
+        morning_spare_workers = [
+            worker.name for worker in in_today_workers + late_shift_workers
+            if worker.name not in used_workers
+        ]
+
+
+        # Log morning spare workers clearly
+        if morning_spare_workers:
+            logging.info(f"Morning Spare Workers ({len(morning_spare_workers)}): {', '.join(morning_spare_workers)}")
+        else:
+            logging.info("No Morning Spare Workers found.")
+        
         
         # Write the assignments for the first time slot (9:00-9:30) to the Excel file
         for role, column in role_to_column.items():
@@ -488,6 +489,18 @@ def generate_schedule():
                 if worker.name not in afternoon_used_workers
             ]
 
+            # Prefer different people for shed roles in the afternoon
+            if role in shed_roles:
+                # Try to avoid reusing the same person who did this role in the morning
+                preferred = [
+                    worker for worker in eligible
+                    if role not in morning_assignments.get(worker.name, [])
+                ]
+                if preferred:
+                    eligible = preferred
+                else:
+                    # Allow reuse only as fallback
+                    logging.warning(f"⚠️ No new workers for {role}, reusing someone from the morning.")
 
             if role in role_to_training['KITUP']:
                 eligible = [
