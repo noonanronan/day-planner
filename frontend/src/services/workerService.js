@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const API_URL = "http://127.0.0.1:5001"; // Flask backend URL
+const API_URL = "https://day-planner-370e.onrender.com";
+
 
 // Axios instance for reusable configurations
 const axiosInstance = axios.create({

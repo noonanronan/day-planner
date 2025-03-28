@@ -11,7 +11,7 @@ from random import choice
 from openpyxl.styles import Font, PatternFill
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins
+CORS(app, origins=["https://glittery-dusk-143432.netlify.app"])
 
 # Enable logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
