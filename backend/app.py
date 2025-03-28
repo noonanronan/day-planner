@@ -350,14 +350,7 @@ def generate_schedule():
                     logging.debug(f"Assigning {selected_worker.name} to {role} (Untrained Worker)")
 
         # Ensure Host & Dekit are printed for all morning time slots (9:00 AM - 12:45 PM)
-        for slot_row in range(2, 9):  # Rows for 9:00, 9:30, ..., 12:45
-            for role in ["Host", "Dekit"]:
-                column = role_to_column.get(role)
-                if column:
-                    sheet.cell(row=slot_row, column=column).value = valid_roles.get(role, "")
-
-        # Ensure Host & Dekit are printed for all morning time slots (9:00 AM - 12:45 PM)
-        for slot_row in range(2, 9):  # Rows for 9:00, 9:30, ..., 12:45
+        for slot_row in range(2, 9):  # Covers 9:00–9:30 to 12:45
             for role in ["Host", "Dekit"]:
                 column = role_to_column.get(role)
                 if column:
@@ -381,6 +374,33 @@ def generate_schedule():
             logging.info(f"{role} -> {worker}")
         logging.info("========================================")
 
+        # ✅ Recalculate spare workers AFTER fallback assignment
+        morning_spare_workers = [
+            worker.name for worker in in_today_workers + late_shift_workers
+            if worker.name not in used_workers
+        ]
+
+
+        # Log morning spare workers clearly
+        if morning_spare_workers:
+            logging.info(f"Morning Spare Workers ({len(morning_spare_workers)}): {', '.join(morning_spare_workers)}")
+        else:
+            logging.info("No Morning Spare Workers found.")
+        
+        # Fallback: Force assign Host and Dekit if still unassigned and spares exist
+        for role in ["Host", "Dekit"]:
+            if role in role_to_column and role not in valid_roles:
+                available_spares = [
+                    worker for worker in in_today_workers + late_shift_workers
+                    if worker.name not in used_workers
+                ]
+
+                if available_spares:
+                    selected_worker = choice(available_spares)
+                    valid_roles[role] = selected_worker.name
+                    used_workers.add(selected_worker.name)
+                    logging.warning(f"Fallback assigning {selected_worker.name} to {role} due to earlier miss.")
+        
         # Write the assignments for the first time slot (9:00-9:30) to the Excel file
         for role, column in role_to_column.items():
             if role == "Course Support 1" and role not in role_to_column:
@@ -389,18 +409,6 @@ def generate_schedule():
             assigned_worker = valid_roles.get(role)
             if assigned_worker:
                 sheet.cell(row=2, column=column).value = assigned_worker
-
-        # Identify final spare workers from the morning (workers who were NOT assigned a role)
-        morning_spare_workers = [
-            worker.name for worker in in_today_workers + late_shift_workers
-            if worker.name not in valid_roles.values()
-        ]
-
-        # Log morning spare workers clearly
-        if morning_spare_workers:
-            logging.info(f"Morning Spare Workers ({len(morning_spare_workers)}): {', '.join(morning_spare_workers)}")
-        else:
-            logging.info("No Morning Spare Workers found.")
 
         # Fill Shed (Host, Dekit, Kit Up 1), Tree Trek, Mini Trek, and ICA roles for all time slots till lunch
         lunch_slots = [3, 4, 5, 6, 7, 8]  # Rows corresponding to 9:30, 10:00, ..., 12:00-12:45
@@ -479,6 +487,7 @@ def generate_schedule():
                 worker for worker in (in_today_workers + late_shift_workers)
                 if worker.name not in afternoon_used_workers
             ]
+
 
             if role in role_to_training['KITUP']:
                 eligible = [
@@ -779,6 +788,21 @@ def generate_schedule():
             logging.info("No Afternoon Spare Workers found.")
 
         logging.info("========================================")
+
+        # Fallback: Force assign Host and Dekit in afternoon if still unassigned and workers are left
+        for role in ["Host", "Dekit"]:
+            if role in role_to_column and role not in afternoon_valid_roles:
+                available_spares = [
+                    worker for worker in in_today_workers + late_shift_workers
+                    if worker.name not in afternoon_used_workers
+                ]
+
+                if available_spares:
+                    selected_worker = choice(available_spares)
+                    afternoon_valid_roles[role] = selected_worker.name
+                    afternoon_used_workers.add(selected_worker.name)
+                    logging.warning(f"⚠️ Fallback assigning {selected_worker.name} to {role} (afternoon fallback).")
+
 
         # Track assigned workers in the afternoon
         assigned_workers = set(afternoon_valid_roles.values())  
