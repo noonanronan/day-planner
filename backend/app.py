@@ -538,6 +538,10 @@ def generate_schedule():
             ]
         )
 
+        # Only add 'Course Support 1' if it exists in the Excel file
+        if "Course Support 1" in role_to_column and "Course Support 1" not in prioritized_roles_afternoon:
+            prioritized_roles_afternoon.insert(2, "Course Support 1")  # Put it with the other course roles
+
         # Assign workers for 12:45-1:30
         for role in prioritized_roles_afternoon:
             eligible_workers = get_afternoon_eligible_workers(role)
