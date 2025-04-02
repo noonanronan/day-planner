@@ -10,9 +10,7 @@ import logging
 from random import choice
 from openpyxl.styles import Font, PatternFill
 
-
-app = Flask(__name__)
-CORS(app, origins=["https://dayplannercp.netlify.app"], supports_credentials=True)
+CORS(app, origins="*", allow_headers=["Content-Type"], supports_credentials=True)
 
 
 # Enable logging
