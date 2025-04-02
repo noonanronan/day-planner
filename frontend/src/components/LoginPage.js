@@ -29,7 +29,7 @@ const LoginPage = () => {
                     autoComplete="new-password" 
                 />
                 {error && <p className="error">{error}</p>}
-                <button type="submit">Login</button>
+                <button type="submit">*Login*</button>
             </form>
         </div>
     );
