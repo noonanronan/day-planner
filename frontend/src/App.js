@@ -16,10 +16,10 @@ const Navbar = () => {
     // Hide navbar on login page
     if (location.pathname === "/") return null;
 
-    const handleLogout = () => {
-        localStorage.removeItem("isAuthenticated");
-        navigate("/");
-    };
+    // const handleLogout = () => {
+    //     localStorage.removeItem("isAuthenticated");
+    //     navigate("/");
+    // };
 
     return (
         <nav className="navbar navbar-expand-lg navbar-light bg-light">
