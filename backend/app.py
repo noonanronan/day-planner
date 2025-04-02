@@ -17,7 +17,7 @@ CORS(app, origins=["https://glittery-dusk-143432.netlify.app"])
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
 
 # Configure the MySQL database connection
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Wabbeylodge1987%23@localhost/day_planner'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://ronannoonan:w6anHTb23_MDeaM@ronannoonan.mysql.pythonanywhere-services.com/ronannoonan$day_planner'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize the database
