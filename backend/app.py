@@ -12,10 +12,8 @@ from openpyxl.styles import Font, PatternFill
 
 
 app = Flask(__name__)
-CORS(app, origins=[
-    "https://dayplannercp.netlify.app",  # Production frontend
-    "https://deploy-preview-*--dayplannercp.netlify.app"  # Deploy Previews
-])
+CORS(app, origins=["https://dayplannercp.netlify.app"], supports_credentials=True)
+
 
 # Enable logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
