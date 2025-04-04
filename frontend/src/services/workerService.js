@@ -14,7 +14,7 @@ const axiosInstance = axios.create({
 // Fetch all workers
 export const getAllWorkers = async () => {
     try {
-        const response = await axiosInstance.get("/workers");
+        const response = await axiosInstance.get("workers");
         return response.data;
     } catch (error) {
         console.error("Error fetching workers:", error.response?.data || error.message);
@@ -25,7 +25,7 @@ export const getAllWorkers = async () => {
 // Create a new worker
 export const createWorker = async (workerData) => {
     try {
-        const response = await axiosInstance.post("/workers", workerData);
+        const response = await axiosInstance.post("workers", workerData);
         return response.data;
     } catch (error) {
         console.error("Error creating worker:", error.response?.data || error.message);
@@ -37,7 +37,7 @@ export const createWorker = async (workerData) => {
 // Update a worker by ID
 export const updateWorker = async (id, workerData) => {
     try {
-        const response = await axiosInstance.put(`/workers/${id}`, workerData);
+        const response = await axiosInstance.put(`workers/${id}`, workerData);
         return response.data;
     } catch (error) {
         console.error("Error updating worker:", error.response?.data || error.message);
@@ -48,7 +48,7 @@ export const updateWorker = async (id, workerData) => {
 // Delete a worker by ID
 export const deleteWorker = async (id) => {
     try {
-        const response = await axiosInstance.delete(`/workers/${id}`);
+        const response = await axiosInstance.delete(`workers/${id}`);
         return response.data;
     } catch (error) {
         const errMsg = error.response?.data?.error || "Failed to delete worker.";
