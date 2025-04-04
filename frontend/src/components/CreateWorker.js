@@ -62,7 +62,7 @@ const CreateWorker = () => {
         try {
             const workerData = { name, roles: selectedRoles, availability };
             await createWorker(workerData);
-            navigate("/");
+            navigate("/workers");
         } catch (error) {
             console.error("Error creating worker:", error);
             alert("Failed to create worker. Please check your input format.");
