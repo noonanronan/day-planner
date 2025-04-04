@@ -77,7 +77,7 @@ const WorkerList = () => {
 
         try {
             const response = await axios.post(
-                "http://127.0.0.1:5001/generate-schedule",
+                "https://ronannoonan.pythonanywhere.com/generate-schedule",
                 {
                   template: selectedTemplate,
                   date: selectedDate,
@@ -128,7 +128,7 @@ const WorkerList = () => {
 
         try {
             const response = await axios.post(
-                "http://127.0.0.1:5001/upload-excel",
+                "https://ronannoonan.pythonanywhere.com/upload-excel",
                 formData,
                 {
                     headers: {
