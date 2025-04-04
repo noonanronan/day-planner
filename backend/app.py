@@ -1010,7 +1010,7 @@ with app.app_context():
     db.create_all()
     logging.info("Database tables created successfully!")
 
-# Run the app
-if __name__ == "__main__":
-    logging.info("Starting Flask app...")
-    app.run(debug=True, port=5001)
+# # Run the app
+# if __name__ == "__main__":
+#     logging.info("Starting Flask app...")
+#     app.run(debug=True, port=5001)
