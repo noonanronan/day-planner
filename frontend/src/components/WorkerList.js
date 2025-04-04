@@ -17,10 +17,10 @@ const WorkerList = () => {
     const [afternoonIcaCount, setAfternoonIcaCount] = useState(4);
     const navigate = useNavigate();
 
-    const handleLogout = () => {
-        localStorage.removeItem("isAuthenticated");
-        navigate("/");
-    };    
+    // const handleLogout = () => {
+    //     localStorage.removeItem("isAuthenticated");
+    //     navigate("/");
+    // };    
 
     useEffect(() => {
         const fetchWorkers = async () => {
@@ -144,17 +144,17 @@ const WorkerList = () => {
         }
     };
 
-    // 🔹 Helper: Check if worker is in today
-    const isWorkerAvailableToday = (availability) => {
-        const today = new Date();
-        const todayStart = new Date(today.setHours(0, 0, 0, 0));
-        const todayEnd = new Date(today.setHours(23, 59, 59, 999));
-        return availability.some((range) => {
-            const start = parseISO(range.start);
-            const end = parseISO(range.end);
-            return isValid(start) && isValid(end) && isWithinInterval(today, { start, end });
-        });
-    };
+    // // 🔹 Helper: Check if worker is in today
+    // const isWorkerAvailableToday = (availability) => {
+    //     const today = new Date();
+    //     const todayStart = new Date(today.setHours(0, 0, 0, 0));
+    //     const todayEnd = new Date(today.setHours(23, 59, 59, 999));
+    //     return availability.some((range) => {
+    //         const start = parseISO(range.start);
+    //         const end = parseISO(range.end);
+    //         return isValid(start) && isValid(end) && isWithinInterval(today, { start, end });
+    //     });
+    // };
 
 
     // 🔹 Helper: Get the first future availability date
