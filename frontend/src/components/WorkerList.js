@@ -3,6 +3,8 @@ import { getAllWorkers, deleteWorker } from "../services/workerService";
 import { useNavigate } from "react-router-dom";
 import { format, parseISO, isValid, compareAsc, isWithinInterval } from "date-fns";
 import axios from "axios";
+import { formatInTimeZone } from "date-fns-tz";
+
 
 const WorkerList = () => {
     const [workers, setWorkers] = useState([]);
@@ -368,9 +370,9 @@ const WorkerList = () => {
                                         <p className="card-text mb-2">
                                         <strong>Availability:</strong> 
                                         {getAvailabilityStatus(worker.availability) === "today" && todayRange
-                                            ? `${format(parseISO(todayRange.start), "hh:mm a")} - ${format(parseISO(todayRange.end), "hh:mm a")}`
+                                            ? `${formatInTimeZone(todayRange.start, 'Europe/Dublin', "hh:mm a")} - ${formatInTimeZone(todayRange.end, 'Europe/Dublin', "hh:mm a")}`
                                             : getAvailabilityStatus(worker.availability) === "future"
-                                            ? `Next: ${format(getNextAvailability(worker.availability), "MMM dd, yyyy HH:mm")}`
+                                            ? `Next: ${formatInTimeZone(getNextAvailability(worker.availability), 'Europe/Dublin', "MMM dd, yyyy HH:mm")}`
                                             : "No upcoming availability"}
 
                                         </p>
