@@ -1,8 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { getAllWorkers, deleteWorker } from "../services/workerService";
+import {
+  getAllWorkers,
+  deleteWorker,
+  apiRequest,
+  uploadTemplate,
+  uploadAvailability,
+  generateSchedule,
+} from "../services/workerService";
 import { useNavigate } from "react-router-dom";
-import { format, parseISO, isValid, compareAsc, isWithinInterval } from "date-fns";
-import axios from "axios";
+import { format, parseISO, isValid, compareAsc } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 
 
@@ -88,33 +94,27 @@ const WorkerList = () => {
         }
 
         try {
-            const response = await axios.post(
-                `${API_URL}generate-schedule`,
-                {
-                  template: selectedTemplate,
-                  date: selectedDate,
-                  ica_morning_count: morningIcaCount,
-                  ica_afternoon_count: afternoonIcaCount,
-                  print_until_hour: printUntilHour,
-                },
-                {
-                  responseType: "blob",
-                }
-              );
-              
-            
+            const blob = await generateSchedule({
+            template: selectedTemplate,
+            date: selectedDate,
+            ica_morning_count: morningIcaCount,
+            ica_afternoon_count: afternoonIcaCount,
+            print_until_hour: printUntilHour,
+            });
 
-            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const url = window.URL.createObjectURL(new Blob([blob]));
             const link = document.createElement("a");
             link.href = url;
             link.setAttribute("download", "day_schedule.xlsx");
             document.body.appendChild(link);
             link.click();
-        } catch (error) {
-            console.error("Error downloading schedule:", error);
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("Error downloading schedule:", err);
             alert("Failed to download schedule. Please try again.");
         }
-    };
+        };
 
     const handleFileChange = (e) => {
         const selectedFile = e.target.files[0];
@@ -135,27 +135,18 @@ const WorkerList = () => {
             setError("No file selected. Please select a file to upload.");
             return;
         }
-
         const formData = new FormData();
         formData.append("file", file);
 
         try {
-            const response = await axios.post(
-                `${API_URL}upload-excel`,
-                formData,
-                {
-                    headers: {
-                        "Content-Type": "multipart/form-data",
-                    },
-                }
-            );
+            const resp = await uploadTemplate(formData);
             alert("File uploaded successfully!");
-            setTemplates((prevTemplates) => [...prevTemplates, response.data.filename]);
-        } catch (error) {
-            console.error("Error uploading file:", error);
+            setTemplates((prev) => [...prev, resp.filename].filter(Boolean));
+        } catch (err) {
+            console.error("Error uploading file:", err);
             setError("Failed to upload the file. Please check the format and try again.");
         }
-    };
+        };
 
     const handleAvailabilityFileChange = (e) => {
         const selectedFile = e.target.files[0];
@@ -174,25 +165,21 @@ const WorkerList = () => {
             setAvailabilityUploadError("No file selected.");
             return;
         }
-    
+
         const formData = new FormData();
         formData.append("file", availabilityFile);
-    
+
         try {
-            const response = await axios.post(`${API_URL}upload-worker-availability`, formData, {
-                headers: {
-                    "Content-Type": "multipart/form-data",
-                },
-            });
-    
+            await uploadAvailability(formData);
             setAvailabilityUploadSuccess("Availability uploaded successfully!");
             setAvailabilityUploadError(null);
-        } catch (error) {
-            console.error("Error uploading availability:", error);
+        } catch (err) {
+            console.error("Error uploading availability:", err);
             setAvailabilityUploadSuccess(null);
             setAvailabilityUploadError("Failed to upload availability. Check the file format and try again.");
         }
-    };
+        };
+
     
 
 

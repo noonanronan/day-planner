@@ -41,3 +41,27 @@ export const apiRequest = async (method, endpoint, data = null) => {
   const { data: resp } = await axiosInstance({ method, url, data });
   return resp;
 };
+
+// Upload a template (multipart)
+export const uploadTemplate = async (formData) => {
+  const { data } = await axiosInstance.post("/upload-excel", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+};
+
+// Upload worker availability (multipart)
+export const uploadAvailability = async (formData) => {
+  const { data } = await axiosInstance.post("/upload-worker-availability", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+};
+
+// Generate schedule (returns a Blob)
+export const generateSchedule = async (payload) => {
+  const resp = await axiosInstance.post("/generate-schedule", payload, {
+    responseType: "blob",
+  });
+  return resp.data; // Blob
+};
