@@ -59,12 +59,12 @@ const WorkerList = () => {
     
         const fetchTemplates = async () => {
             try {
-                const response = await axios.get(`${API_URL}list-templates`);
-                setTemplates(response.data.templates);
+                const data = await apiRequest("get", "/list-templates");
+                setTemplates(data.templates);
             } catch (error) {
                 console.error("Error fetching templates:", error);
             }
-        };
+            };
     
         fetchWorkers();
         fetchTemplates();

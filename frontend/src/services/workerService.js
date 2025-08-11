@@ -1,73 +1,43 @@
 import axios from "axios";
 
-const API_URL = process.env.REACT_APP_API_URL;
+const API_URL = (process.env.REACT_APP_API_URL || "").replace(/\/+$/, "");
 
 // Axios instance for reusable configurations
 const axiosInstance = axios.create({
-    baseURL: API_URL,
-    headers: {
-        "Content-Type": "application/json", // Default header
-    },
+  baseURL: API_URL,
+  headers: { "Content-Type": "application/json" },
 });
 
 // Fetch all workers
 export const getAllWorkers = async () => {
-    try {
-        const response = await axiosInstance.get("workers");
-        return response.data;
-    } catch (error) {
-        console.error("Error fetching workers:", error.response?.data || error.message);
-        throw error.response?.data || error.message; // Propagate error for handling
-    }
+  const { data } = await axiosInstance.get("/workers");
+  return data;
 };
 
 // Create a new worker
 export const createWorker = async (workerData) => {
-    try {
-        const response = await axiosInstance.post("workers", workerData);
-        return response.data;
-    } catch (error) {
-        console.error("Error creating worker:", error.response?.data || error.message);
-        throw error.response?.data || error.message; 
-    }
+  const { data } = await axiosInstance.post("/workers", workerData);
+  return data;
 };
 
 
 // Update a worker by ID
 export const updateWorker = async (id, workerData) => {
-    try {
-        const response = await axiosInstance.put(`workers/${id}`, workerData);
-        return response.data;
-    } catch (error) {
-        console.error("Error updating worker:", error.response?.data || error.message);
-        throw error.response?.data || error.message; 
-    }
+  const { data } = await axiosInstance.put(`/workers/${id}`, workerData);
+  return data;
 };
+
 
 // Delete a worker by ID
 export const deleteWorker = async (id) => {
-    try {
-        const response = await axiosInstance.delete(`workers/${id}`);
-        return response.data;
-    } catch (error) {
-        const errMsg = error.response?.data?.error || "Failed to delete worker.";
-        console.error("Error deleting worker:", errMsg);
-        throw new Error(errMsg); // Wrap in Error to allow clean catching in frontend
-    }
+  const { data } = await axiosInstance.delete(`/workers/${id}`);
+  return data;
 };
 
 
 // General API request 
 export const apiRequest = async (method, endpoint, data = null) => {
-    try {
-        const response = await axiosInstance({
-            method,
-            url: endpoint,
-            data,
-        });
-        return response.data;
-    } catch (error) {
-        console.error(`Error with ${method.toUpperCase()} request to ${endpoint}:`, error.response?.data || error.message);
-        throw error.response?.data || error.message; 
-    }
+  const url = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const { data: resp } = await axiosInstance({ method, url, data });
+  return resp;
 };
