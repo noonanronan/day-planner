@@ -1,25 +1,28 @@
 from flask import Flask, request, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+import os
+from pathlib import Path
+from zoneinfo import ZoneInfo
+from hmac import compare_digest
+import logging
 from datetime import datetime, timezone
 from dateutil import parser
 from io import BytesIO
 import openpyxl
-import os
-import logging
-from random import choice
 from openpyxl.styles import Font, PatternFill
-from dotenv import load_dotenv
 import re
-from zoneinfo import ZoneInfo
-from hmac import compare_digest
-from pathlib import Path
+from random import choice
+from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": os.getenv("CORS_ORIGIN", "*")}})
 
+frontend_origins = os.getenv("FRONTEND_ORIGINS", "http://localhost:3000,https://day-planner.vercel.app")
+frontend_origins_list = [origin.strip() for origin in frontend_origins.split(",")]
+
+CORS(app, resources={r"/*": {"origins": frontend_origins_list}})
 
 # database
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URI")
