@@ -19,10 +19,10 @@ load_dotenv()
 
 app = Flask(__name__)
 
-_frontend_origins = os.getenv("FRONTEND_ORIGINS", "")
-ALLOWED_ORIGINS = [o.strip() for o in _frontend_origins.split(",") if o.strip()]
-
-CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=False)
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("FRONTEND_ORIGINS", "").split(",") if o.strip()
+]
+CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
 from flask import request
 @app.after_request
