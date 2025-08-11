@@ -11,7 +11,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 // 🔹 Navbar Component with Logout Button
 const Navbar = () => {
     const location = useLocation();
-    const navigate = useNavigate();
+    // const navigate = useNavigate();
 
     // Hide navbar on login page
     if (location.pathname === "/") return null;

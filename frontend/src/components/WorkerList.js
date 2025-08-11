@@ -19,6 +19,16 @@ const WorkerList = () => {
     const [afternoonIcaCount, setAfternoonIcaCount] = useState(4);
     const navigate = useNavigate();
 
+    const [availabilityFile, setAvailabilityFile] = useState(null);
+    const [availabilityUploadError, setAvailabilityUploadError] = useState(null);
+    const [availabilityUploadSuccess, setAvailabilityUploadSuccess] = useState(null);
+
+    const [printUntilHour, setPrintUntilHour] = useState(16); // 16, 17, or 18
+
+
+    const API_URL = process.env.REACT_APP_API_URL;
+
+
     // const handleLogout = () => {
     //     localStorage.removeItem("isAuthenticated");
     //     navigate("/");
@@ -49,7 +59,7 @@ const WorkerList = () => {
     
         const fetchTemplates = async () => {
             try {
-                const response = await axios.get("https://ronannoonan.pythonanywhere.com/list-templates");
+                const response = await axios.get(`${API_URL}list-templates`);
                 setTemplates(response.data.templates);
             } catch (error) {
                 console.error("Error fetching templates:", error);
@@ -79,12 +89,13 @@ const WorkerList = () => {
 
         try {
             const response = await axios.post(
-                "https://ronannoonan.pythonanywhere.com/generate-schedule",
+                `${API_URL}generate-schedule`,
                 {
                   template: selectedTemplate,
                   date: selectedDate,
                   ica_morning_count: morningIcaCount,
                   ica_afternoon_count: afternoonIcaCount,
+                  print_until_hour: printUntilHour,
                 },
                 {
                   responseType: "blob",
@@ -130,7 +141,7 @@ const WorkerList = () => {
 
         try {
             const response = await axios.post(
-                "https://ronannoonan.pythonanywhere.com/upload-excel",
+                `${API_URL}upload-excel`,
                 formData,
                 {
                     headers: {
@@ -146,17 +157,43 @@ const WorkerList = () => {
         }
     };
 
-    // // 🔹 Helper: Check if worker is in today
-    // const isWorkerAvailableToday = (availability) => {
-    //     const today = new Date();
-    //     const todayStart = new Date(today.setHours(0, 0, 0, 0));
-    //     const todayEnd = new Date(today.setHours(23, 59, 59, 999));
-    //     return availability.some((range) => {
-    //         const start = parseISO(range.start);
-    //         const end = parseISO(range.end);
-    //         return isValid(start) && isValid(end) && isWithinInterval(today, { start, end });
-    //     });
-    // };
+    const handleAvailabilityFileChange = (e) => {
+        const selectedFile = e.target.files[0];
+        if (selectedFile && selectedFile.name.endsWith(".xlsx")) {
+            setAvailabilityFile(selectedFile);
+            setAvailabilityUploadError(null);
+            setAvailabilityUploadSuccess(null);
+        } else {
+            setAvailabilityFile(null);
+            setAvailabilityUploadError("Please upload a valid Excel (.xlsx) file.");
+        }
+    };
+    
+    const handleUploadAvailability = async () => {
+        if (!availabilityFile) {
+            setAvailabilityUploadError("No file selected.");
+            return;
+        }
+    
+        const formData = new FormData();
+        formData.append("file", availabilityFile);
+    
+        try {
+            const response = await axios.post(`${API_URL}upload-worker-availability`, formData, {
+                headers: {
+                    "Content-Type": "multipart/form-data",
+                },
+            });
+    
+            setAvailabilityUploadSuccess("Availability uploaded successfully!");
+            setAvailabilityUploadError(null);
+        } catch (error) {
+            console.error("Error uploading availability:", error);
+            setAvailabilityUploadSuccess(null);
+            setAvailabilityUploadError("Failed to upload availability. Check the file format and try again.");
+        }
+    };
+    
 
 
     // 🔹 Helper: Get the first future availability date
@@ -314,6 +351,18 @@ const WorkerList = () => {
                             onChange={(e) => setAfternoonIcaCount(e.target.value)}
                         />
                         </div>
+                        <div className="col-md-3">
+                            <label className="form-label">Stop Printing At:</label>
+                            <select
+                                className="form-select"
+                                value={printUntilHour}
+                                onChange={(e) => setPrintUntilHour(Number(e.target.value))}
+                            >
+                                <option value={16}>4:00 PM</option>
+                                <option value={17}>5:00 PM</option>
+                                <option value={18}>6:00 PM</option>
+                            </select>
+                        </div>
                     <div className="col-md-2 d-grid">
                         <button className="btn btn-success mt-4" onClick={handleDownloadSchedule}>
                             Generate Schedule
@@ -322,8 +371,26 @@ const WorkerList = () => {
                 </div>
             </div>
 
-            
+            <div className="card p-3 mb-4">
+                <h5 className="mb-3">Upload Worker Availability</h5>
+                <input
+                    type="file"
+                    className="form-control mb-2"
+                    accept=".xlsx"
+                    onChange={handleAvailabilityFileChange}
+                />
+                <button className="btn btn-primary" onClick={handleUploadAvailability}>
+                    Upload Availability File
+                </button>
+                {availabilityUploadSuccess && (
+                    <p className="text-success mt-2">{availabilityUploadSuccess}</p>
+                )}
+                {availabilityUploadError && (
+                    <p className="text-danger mt-2">{availabilityUploadError}</p>
+                )}
+            </div>
 
+            
             {/* Search Bar */}
             <div className="mb-3">
                 <input

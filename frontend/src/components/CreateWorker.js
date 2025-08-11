@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { createWorker } from "../services/workerService";
+import { fromZonedTime } from "date-fns-tz";
 
 const predefinedRoles = ["KITUP", "AATT", "MT", "ICA"];
 
@@ -30,7 +31,7 @@ const CreateWorker = () => {
     };
 
     const handleAddAvailability = () => {
-        setAvailability([...availability, { start: null, end: null }]);
+        setAvailability([...availability, { start: null, end: null, late: false }]);
     };
 
     const handleRemoveAvailability = (index) => {
@@ -48,19 +49,39 @@ const CreateWorker = () => {
     };
 
     const handleAddPredefinedTime = (time) => {
-        setAvailability([...availability, { start: new Date(time.start), end: new Date(time.end) }]);
+        const isLate = new Date(time.start).getHours() >= 10;
+        setAvailability([...availability, {
+            start: new Date(time.start),
+            end: new Date(time.end),
+            late: isLate
+        }]);
     };
+    
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
+    
         if (availability.some(({ start, end }) => !start || !end)) {
             alert("Please fill out all availability fields.");
             return;
         }
-
+    
         try {
-            const workerData = { name, roles: selectedRoles, availability };
+            const timeZone = "Europe/Dublin";
+    
+            const adjustedAvailability = availability.map(({ start, end, late }) => ({
+                start: fromZonedTime(start, timeZone).toISOString(),
+                end: fromZonedTime(end, timeZone).toISOString(),
+                late: !!late  // boolean
+              }));
+            
+    
+            const workerData = {
+                name,
+                roles: selectedRoles,
+                availability: adjustedAvailability,
+            };
+    
             await createWorker(workerData);
             navigate("/workers");
         } catch (error) {
@@ -68,6 +89,7 @@ const CreateWorker = () => {
             alert("Failed to create worker. Please check your input format.");
         }
     };
+    
 
     return (
         <div className="container mt-4">
@@ -148,6 +170,22 @@ const CreateWorker = () => {
                                 placeholderText="End Time"
                                 className="form-control"
                             />
+                            <div className="form-check ms-2">
+                                <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    id={`late-${index}`}
+                                    checked={range.late}
+                                    onChange={(e) => {
+                                        const updated = [...availability];
+                                        updated[index].late = e.target.checked;
+                                        setAvailability(updated);
+                                    }}
+                                />
+                                <label className="form-check-label" htmlFor={`late-${index}`}>
+                                    Late Shift
+                                </label>
+                            </div>
                             <button
                                 type="button"
                                 className="btn btn-danger btn-sm"

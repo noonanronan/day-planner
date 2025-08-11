@@ -9,25 +9,36 @@ import os
 import logging
 from random import choice
 from openpyxl.styles import Font, PatternFill
+from dotenv import load_dotenv
+import re
+from zoneinfo import ZoneInfo
+from hmac import compare_digest
+from pathlib import Path
 
+load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "https://dayplannercp.netlify.app"}})
+CORS(app, resources={r"/*": {"origins": os.getenv("CORS_ORIGIN", "*")}})
 
 
-# Enable logging
+# database
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URI")
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['ENV'] = os.getenv("FLASK_ENV", "production")
+
+# logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s: %(message)s')
 
-# Configure the MySQL database connection
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://ronannoonan:Perssmoe@ronannoonan.mysql.pythonanywhere-services.com/ronannoonan$day_planner'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Initialize the database
 db = SQLAlchemy(app)
 
-# Directory for storing uploaded files
-UPLOAD_FOLDER = 'uploaded_templates'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# storage
+UPLOAD_FOLDER = Path('uploaded_templates')
+UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+
+# app constants
+TIMEZONE = ZoneInfo("Europe/London")
+ALLOWED_PRINT_HOURS = {16, 17, 18}
+DASH_PATTERN = r"[-–—]"
 
 # Define a Worker model
 class Worker(db.Model):
@@ -74,6 +85,181 @@ def upload_excel():
     except Exception as e:
         logging.error(f"Error uploading file: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/upload-worker-availability', methods=['POST'])
+def upload_worker_availability():
+    try:
+        file = request.files['file']
+        if not file:
+            return jsonify({'error': 'No file provided'}), 400
+
+        workbook = openpyxl.load_workbook(file)
+
+        # --- Helper: robust time-range parser (handles -, – , —, spaces, 24h and 12h AM/PM) ---
+        DASH_PATTERN = r"[-–—]"  # hyphen, en dash, em dash
+
+        def parse_time_range(cell_val):
+            """
+            Accepts strings like '08:00 - 16:00', '08:00–16:00', '8:00 AM — 4:30 PM'.
+            Returns (start_time, end_time) as datetime.time.
+            """
+            s = str(cell_val).strip()
+
+            m = re.search(rf"(\d{{1,2}}:\d{{2}})\s*{DASH_PATTERN}\s*(\d{{1,2}}:\d{{2}})", s)
+            if m:
+                t1 = datetime.strptime(m.group(1), "%H:%M").time()
+                t2 = datetime.strptime(m.group(2), "%H:%M").time()
+                return t1, t2
+
+            m = re.search(rf"(\d{{1,2}}:\d{{2}}\s*[APap][Mm])\s*{DASH_PATTERN}\s*(\d{{1,2}}:\d{{2}}\s*[APap][Mm])", s)
+            if m:
+                t1 = datetime.strptime(m.group(1).upper(), "%I:%M %p").time()
+                t2 = datetime.strptime(m.group(2).upper(), "%I:%M %p").time()
+                return t1, t2
+
+            raise ValueError(f"Unrecognized time range: {cell_val!r}")
+
+        all_results = []  # collects a summary across all sheets
+        updated_count = 0  # counter of DB updates
+
+        # Process ALL worksheets in the file
+        for sheet in workbook.worksheets:
+            logging.info(f"🔎 Processing sheet: {sheet.title}")
+
+            # Step 1: Extract date from B22 area on this sheet
+            target_date = None
+            for row in sheet.iter_rows(min_row=22, max_row=22):
+                for cell in row:
+                    if cell.value and isinstance(cell.value, str) and re.search(r"\d{2}/\d{2}/\d{4}", cell.value):
+                        match = re.search(r"\d{2}/\d{2}/\d{4}", cell.value)
+                        if match:
+                            target_date = datetime.strptime(match.group(), "%d/%m/%Y")
+                            break
+                if target_date:
+                    break
+
+            if not target_date:
+                logging.warning(f"⚠️ Skipping sheet '{sheet.title}' — no date found on row 22.")
+                continue  # move to next sheet
+
+            # Step 2: Collect names and times from row 24 down on this sheet
+            for i, row in enumerate(sheet.iter_rows(min_row=24), start=24):
+                name_cell = row[1] if len(row) > 1 else None  # Column B
+                time_cell = None
+
+                # Check columns D, E, F for a single-cell range first
+                for idx in [3, 4, 5]:
+                    if len(row) > idx and row[idx].value:
+                        time_cell = row[idx]
+                        break
+
+                logging.info(f"[{sheet.title}] Row {i} -> name: {name_cell.value if name_cell else 'None'}, time: {time_cell.value if time_cell else 'None'}")
+
+                if not (name_cell and name_cell.value):
+                    continue
+
+                worker_name = str(name_cell.value).strip()
+
+                # Try single-cell time range first
+                start_t = end_t = None
+                if time_cell and time_cell.value:
+                    try:
+                        start_t, end_t = parse_time_range(time_cell.value)
+                    except Exception as parse_err:
+                        logging.debug(f"[{sheet.title}] Single-cell time parse failed at row {i}: {parse_err}")
+
+                # Fallback: if range not found in one cell, try separate start/end in D and E
+                if (start_t is None or end_t is None):
+                    start_cell = row[3] if len(row) > 3 else None  # col D
+                    end_cell   = row[4] if len(row) > 4 else None  # col E
+
+                    def to_time(val):
+                        """
+                        Convert an Excel cell value into datetime.time if possible.
+                        Handles datetime, time, 'HH:MM', and 'HH:MM AM/PM'.
+                        """
+                        if val is None:
+                            return None
+                        if isinstance(val, datetime):
+                            return val.time()
+                        try:
+                            from datetime import time as _time
+                            if isinstance(val, _time):
+                                return val
+                        except Exception:
+                            pass
+                        if isinstance(val, str):
+                            s = val.strip().upper()
+                            try:
+                                return datetime.strptime(s, "%H:%M").time()
+                            except ValueError:
+                                pass
+                            try:
+                                return datetime.strptime(s, "%I:%M %p").time()
+                            except ValueError:
+                                return None
+                        return None
+
+                    if start_cell and end_cell:
+                        start_t = to_time(start_cell.value)
+                        end_t = to_time(end_cell.value)
+
+                if not (start_t and end_t):
+                    # Nothing parseable on this row; continue to next row
+                    continue
+
+                # Record for response logging (keeps your existing behavior)
+                time_range_display = f"{start_t.strftime('%H:%M')} - {end_t.strftime('%H:%M')}"
+                all_results.append({"sheet": sheet.title, "name": worker_name, "time": time_range_display, "date": target_date.strftime("%Y-%m-%d")})
+
+                # Update each worker's availability in the database (per-sheet date)
+                existing_worker = Worker.query.filter_by(name=worker_name).first()
+                if existing_worker:
+                    try:
+                        # Build datetimes on sheet's target_date using Europe/London timezone
+                        start_datetime = datetime.combine(target_date.date(), start_t).replace(tzinfo=ZoneInfo("Europe/London"))
+                        end_datetime   = datetime.combine(target_date.date(), end_t).replace(tzinfo=ZoneInfo("Europe/London"))
+
+                        new_availability = {
+                            "start": start_datetime.isoformat(),
+                            "end": end_datetime.isoformat(),
+                            "late": start_datetime.hour >= 10  # helpful flag used elsewhere
+                        }
+
+                        # Remove existing availability for this date (if any), then append
+                        updated_availability = [
+                            a for a in existing_worker.availability
+                            if parser.parse(a["start"]).date() != target_date.date()
+                        ]
+                        updated_availability.append(new_availability)
+                        existing_worker.availability = updated_availability
+
+                        updated_count += 1
+                    except Exception as parse_err:
+                        logging.warning(f" Could not save time for {worker_name} (sheet '{sheet.title}', row {i}): {parse_err}")
+                else:
+                    logging.warning(f" Worker not found in DB: {worker_name}")
+
+        # Commit once after processing all sheets (reduces I/O)
+        db.session.commit()
+
+        # Log the parsed availability (across all sheets)
+        logging.info(" Parsed worker availability from Excel (all sheets):")
+        for entry in all_results:
+            logging.info(f"[{entry['sheet']}] {entry['date']} — {entry['name']} - {entry['time']}")
+        logging.info(f"Total availability updates: {updated_count}")
+
+        # Build response summary by date/sheet
+        return jsonify({
+            "updates": updated_count,
+            "entries": all_results
+        }), 200
+
+    except Exception as e:
+        logging.error(f" Error parsing availability upload: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
     
 @app.route('/list-templates', methods=['GET'])
 def list_templates():
@@ -90,7 +276,7 @@ def list_templates():
 def generate_schedule():
     try:
         selected_file = request.json.get('template')
-        selected_date_str = request.json.get('date')  # ⬅️ Get selected date from request
+        selected_date_str = request.json.get('date')  # Get selected date from request
 
         ica_morning_count = request.json.get("ica_morning_count", 4)
         ica_afternoon_count = request.json.get("ica_afternoon_count", 4)
@@ -98,6 +284,11 @@ def generate_schedule():
         # Clamp values to stay between 2 and 4
         ica_morning_count = max(2, min(4, int(ica_morning_count)))
         ica_afternoon_count = max(2, min(4, int(ica_afternoon_count)))
+
+        # option to extend non-ICA printing to 4pm, 5pm, or 6pm
+        print_until_hour = int(request.json.get("print_until_hour", 16))
+        if print_until_hour not in (16, 17, 18):
+            print_until_hour = 16
 
         # Reset all stateful variables to prevent carryover issues
         valid_roles = {}
@@ -141,7 +332,7 @@ def generate_schedule():
                     end = parser.parse(availability['end']).astimezone(timezone.utc)
 
                     if start.date() <= selected_date.date() <= end.date():
-                        if start.hour >= 10:
+                        if availability.get("late"):
                             late_shift_workers.append(worker)
                         else:
                             in_today_workers.append(worker)
@@ -152,6 +343,7 @@ def generate_schedule():
                         break  # Stop checking once availability is confirmed
                 except Exception as e:
                     logging.error(f"Error parsing availability for worker {worker.name}: {e}")
+
 
         # Define role-to-training mapping
         role_to_training = {
@@ -566,6 +758,8 @@ def generate_schedule():
         if "Course Support 1" in role_to_column and "Course Support 1" not in prioritized_roles_afternoon:
             prioritized_roles_afternoon.insert(2, "Course Support 1")  # Put it with the other course roles
 
+        
+
         # Assign workers for 12:45-1:30
         for role in prioritized_roles_afternoon:
             eligible_workers = get_afternoon_eligible_workers(role)
@@ -716,10 +910,15 @@ def generate_schedule():
                 if role not in course_roles and role not in ica_roles
             ]
 
-            # Assign remaining non-ICA roles as usual
             for role in prioritized_roles_afternoon:
+                # ✅ Skip if already assigned at 12:45–1:30
+                if role in afternoon_valid_roles:
+                    continue
                 if role in ica_roles:  # Skip ICA roles since they are already assigned
                     continue
+                if role == "Mini Trek":  # ⛔️ Also skip re-assigning Mini Trek after 12:45–1:30
+                    continue
+
 
                 eligible_workers = get_afternoon_eligible_workers(role)
 
@@ -738,6 +937,9 @@ def generate_schedule():
 
             # Assign workers for the current time slot
             for role in prioritized_roles_afternoon:
+                if role == "Mini Trek" and role in afternoon_valid_roles:
+                    continue
+
                 eligible_workers = get_afternoon_eligible_workers(role)
                 
                 # Filter out workers not trained for ICA roles if assigning to ICA roles
@@ -794,6 +996,51 @@ def generate_schedule():
                     column = role_to_column.get(ica_role)
                     if column:
                         sheet.cell(row=slot_row, column=column).value = worker.name
+        
+        # extend non-ICA roles printing up to selected cutoff hour
+        # row map: 10..15 are 12:45,13:30,14:00,14:30,15:00,15:30
+        # row map: 16..21 are 16:00,16:30,17:00,17:30,18:00,18:30
+        # for a cutoff of 16 print up to 15:30
+        # for a cutoff of 17 print up to 16:30
+        # for a cutoff of 18 print up to 17:30
+
+        cutoff_rows_map = {
+            16: [15],                 # up to 15:30
+            17: [15, 16, 17],         # up to 16:30
+            18: [15, 16, 17, 18, 19], # up to 17:30
+        }
+        non_ica_rows_to_fill = cutoff_rows_map.get(print_until_hour, [])
+
+        # ordered list of course roles for evening reuse
+        course_roles_evening = ['Course Support 2', 'Zip Top 1', 'Zip Top 2', 'Zip Ground', 'rotate to course 1']
+        if "Course Support 1" in role_to_column:
+            course_roles_evening.insert(0, "Course Support 1")
+
+        # seed the rotation list from the latest known order
+        if not course_workers:
+            course_workers = [afternoon_valid_roles.get(role) for role in course_roles_evening]
+
+        saved_afternoon_workers_all = afternoon_valid_roles.copy()
+
+        for slot_row in non_ica_rows_to_fill:
+            if slot_row >= 16 and course_workers:
+                course_workers = course_workers[-1:] + course_workers[:-1]
+
+            for role, worker in zip(course_roles_evening, course_workers):
+                col = role_to_column.get(role)
+                if col:
+                    sheet.cell(row=slot_row, column=col).value = worker or ""
+
+            for role in ['TREE TREK 1', 'TREE TREK 2']:
+                col = role_to_column.get(role)
+                if col:
+                    sheet.cell(row=slot_row, column=col).value = saved_afternoon_workers_all.get(role, "")
+
+            for role in ['Host', 'Dekit', 'Kit Up 1', 'Kit Up 2', 'Kit Up 3', 'Clip In 1', 'Clip In 2', 'Mini Trek']:
+                col = role_to_column.get(role)
+                if col:
+                    sheet.cell(row=slot_row, column=col).value = saved_afternoon_workers_all.get(role, "")
+
 
         logging.info("\n======== SPARE WORKERS SUMMARY ========")
         logging.info(f"Morning Spare Workers ({len(morning_spare_workers)}): {', '.join(morning_spare_workers) if morning_spare_workers else 'None'}")
@@ -958,7 +1205,7 @@ def update_worker(worker_id):
                     "end": parser.parse(a["end"]).isoformat(),
                 }
                 for a in data["availability"]
-            ]
+            ] 
 
         db.session.commit()
 
@@ -992,13 +1239,13 @@ def delete_worker(worker_id):
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json()
-    password = data.get("password")
-
-    if password == "CenterParcs":  # Case-sensitive match
+    data = request.get_json() or {}
+    password = data.get("password", "")
+    expected = os.getenv("ADMIN_PASSWORD", "CenterParcs")
+    if compare_digest(password, expected):
         return jsonify({"success": True}), 200
-    else:
-        return jsonify({"success": False, "error": "Invalid password"}), 401
+    return jsonify({"success": False, "error": "Invalid password"}), 401
+
 
 # Home route to confirm the app is running
 @app.route("/")
@@ -1010,7 +1257,7 @@ with app.app_context():
     db.create_all()
     logging.info("Database tables created successfully!")
 
-# # Run the app
-# if __name__ == "__main__":
-#     logging.info("Starting Flask app...")
-#     app.run(debug=True, port=5001)
+# Run the app
+if __name__ == "__main__":
+    logging.info("Starting Flask app...")
+    app.run(debug=True, port=5001)
