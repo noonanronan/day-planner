@@ -49,13 +49,15 @@ const CreateWorker = () => {
     };
 
     const handleAddPredefinedTime = (time) => {
-        const isLate = new Date(time.start).getHours() >= 10;
-        setAvailability([...availability, {
+        setAvailability((prev) => [
+            ...prev,
+            {
             start: new Date(time.start),
             end: new Date(time.end),
-            late: isLate
-        }]);
-    };
+            late: false
+            },
+        ]);
+        };
     
 
     const handleSubmit = async (e) => {

@@ -59,7 +59,7 @@ UPLOAD_FOLDER = Path('uploaded_templates')
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # app constants
-TIMEZONE = ZoneInfo("Europe/London")
+TIMEZONE = ZoneInfo("Europe/Dublin")
 ALLOWED_PRINT_HOURS = {16, 17, 18}
 DASH_PATTERN = r"[-–—]"
 
@@ -246,7 +246,7 @@ def upload_worker_availability():
                         new_availability = {
                             "start": start_datetime.isoformat(),
                             "end": end_datetime.isoformat(),
-                            "late": start_datetime.hour >= 10  # helpful flag used elsewhere
+                            "late": False
                         }
 
                         # Remove existing availability for this date (if any), then append
@@ -355,7 +355,7 @@ def generate_schedule():
                     end = parser.parse(availability['end']).astimezone(timezone.utc)
 
                     if start.date() <= selected_date.date() <= end.date():
-                        if availability.get("late"):
+                        if bool(availability.get("late", False)):
                             late_shift_workers.append(worker)
                         else:
                             in_today_workers.append(worker)
@@ -1142,11 +1142,23 @@ def generate_schedule():
         for worker in in_today_workers + late_shift_workers:
             for availability in worker.availability:
                 try:
-                    start = parser.parse(availability['start']).astimezone(timezone.utc)
-                    end = parser.parse(availability['end']).astimezone(timezone.utc)
+                    start = parser.parse(availability["start"])
+                    end = parser.parse(availability["end"])
 
-                    if start.date() <= selected_date.date() <= end.date():
-                        in_today_sorted.append((start, worker.name, start, end))
+                    # Normalize to local tz for display/sorting
+                    if start.tzinfo is None:
+                        start_local = start.replace(tzinfo=TIMEZONE)
+                    else:
+                        start_local = start.astimezone(TIMEZONE)
+
+                    if end.tzinfo is None:
+                        end_local = end.replace(tzinfo=TIMEZONE)
+                    else:
+                        end_local = end.astimezone(TIMEZONE)
+
+                    # Check date against the selected date (also in local tz)
+                    if start_local.date() <= selected_date.astimezone(TIMEZONE).date() <= end_local.date():
+                        in_today_sorted.append((start_local, worker.name, start_local, end_local))
                         break
                 except Exception as e:
                     logging.warning(f"Skipping invalid availability for {worker.name}: {e}")
@@ -1155,9 +1167,9 @@ def generate_schedule():
         in_today_sorted.sort(key=lambda x: x[0])
 
         # Write each worker
-        for i, (_, name, start, end) in enumerate(in_today_sorted, start=1):
+        for i, (_, name, start_local, end_local) in enumerate(in_today_sorted, start=1):
             row = summary_start_row + i
-            time_range = f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')}"
+            time_range = f"{start_local.strftime('%H:%M')} - {end_local.strftime('%H:%M')}"
             sheet.cell(row=row, column=summary_col).value = f"{name} - {time_range}"
 
         # Save and send the Excel file

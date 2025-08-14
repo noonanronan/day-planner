@@ -39,6 +39,7 @@ const UpdateWorker = () => {
                         .map((range) => ({
                             start: new Date(range.start),
                             end: new Date(range.end),
+                            late: !!range.late,   // Keep checkbox state
                         }))
                         .filter((range) => range.end >= now);
     
@@ -68,13 +69,16 @@ const UpdateWorker = () => {
     };
 
     const handleAddPredefinedTime = (time) => {
-        const isLate = new Date(time.start).getHours() >= 10;
-        setAvailability([...availability, {
+        setAvailability((prev) => [
+            ...prev,
+            {
             start: new Date(time.start),
             end: new Date(time.end),
-            late: isLate
-        }]);
-    };
+            late: false
+            },
+        ]);
+        };
+
     
 
     const handleRemoveAvailability = (index) => {

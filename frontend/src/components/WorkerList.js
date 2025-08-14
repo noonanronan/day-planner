@@ -45,14 +45,15 @@ const WorkerList = () => {
     
                 const cleanedWorkers = data.workers.map((worker) => {
                     const filteredAvailability = worker.availability
-                        .map(({ start, end }) => ({
-                            start,
-                            end,
+                        .map(({ start, end, late }) => ({
+                        start,
+                        end,
+                        late: !!late, 
                         }))
                         .filter(({ end }) => new Date(end) >= now);
-    
+
                     return { ...worker, availability: filteredAvailability };
-                });
+                    });
     
                 setWorkers(cleanedWorkers);
             } catch (error) {
