@@ -22,7 +22,16 @@ app = Flask(__name__)
 ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("FRONTEND_ORIGINS", "").split(",") if o.strip()
 ]
-CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
+
+CORS(
+    app,
+    resources={r"/*": {"origins": ALLOWED_ORIGINS or "*"}},
+    supports_credentials=False,
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
+
+
 
 from flask import request
 @app.after_request
@@ -1204,33 +1213,30 @@ def update_worker(worker_id):
 
         data = request.get_json()
 
-        # Validate and update name
         worker.name = data.get("name", worker.name)
-
-        # Validate and update roles
         worker.roles = data.get("roles", worker.roles)
 
-        # Validate and update availability
         if "availability" in data:
-            # Ensure availability times are ISO 8601 strings
             worker.availability = [
                 {
                     "start": parser.parse(a["start"]).isoformat(),
                     "end": parser.parse(a["end"]).isoformat(),
+                    "late": bool(a.get("late", False)),
                 }
                 for a in data["availability"]
-            ] 
+            ]
 
         db.session.commit()
 
-        updated_worker_data = {
-            "id": worker.id,
-            "name": worker.name,
-            "roles": worker.roles,
-            "availability": worker.availability,
-        }
-
-        return jsonify({"message": "Worker updated successfully", "worker": updated_worker_data}), 200
+        return jsonify({
+            "message": "Worker updated successfully",
+            "worker": {
+                "id": worker.id,
+                "name": worker.name,
+                "roles": worker.roles,
+                "availability": worker.availability,
+            },
+        }), 200
     except Exception as e:
         logging.error(f"Error updating worker {worker_id}: {e}")
         return jsonify({"error": str(e)}), 500

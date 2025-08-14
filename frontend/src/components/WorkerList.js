@@ -32,9 +32,6 @@ const WorkerList = () => {
     const [printUntilHour, setPrintUntilHour] = useState(16); // 16, 17, or 18
 
 
-    const API_URL = process.env.REACT_APP_API_URL;
-
-
     // const handleLogout = () => {
     //     localStorage.removeItem("isAuthenticated");
     //     navigate("/");
@@ -95,14 +92,14 @@ const WorkerList = () => {
 
         try {
             const blob = await generateSchedule({
-            template: selectedTemplate,
-            date: selectedDate,
-            ica_morning_count: morningIcaCount,
-            ica_afternoon_count: afternoonIcaCount,
-            print_until_hour: printUntilHour,
+                template: selectedTemplate,
+                date: selectedDate,
+                ica_morning_count: morningIcaCount,
+                ica_afternoon_count: afternoonIcaCount,
+                print_until_hour: printUntilHour,
             });
 
-            const url = window.URL.createObjectURL(new Blob([blob]));
+            const url = window.URL.createObjectURL(blob); 
             const link = document.createElement("a");
             link.href = url;
             link.setAttribute("download", "day_schedule.xlsx");
@@ -110,10 +107,10 @@ const WorkerList = () => {
             link.click();
             link.remove();
             window.URL.revokeObjectURL(url);
-        } catch (err) {
+            } catch (err) {
             console.error("Error downloading schedule:", err);
             alert("Failed to download schedule. Please try again.");
-        }
+            }
         };
 
     const handleFileChange = (e) => {
