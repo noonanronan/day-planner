@@ -24,11 +24,11 @@ app = Flask(__name__)
 
 ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("FRONTEND_ORIGINS", "").split(",") if o.strip()
-]
+] or ["*"]  
 
 CORS(
     app,
-    resources={r"/*": {"origins": ALLOWED_ORIGINS}},
+    resources={r"/*": {"origins": ALLOWED_ORIGINS if "*" not in ALLOWED_ORIGINS else "*"}},
     supports_credentials=False,
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
@@ -38,11 +38,13 @@ CORS(
 @app.after_request
 def add_cors_headers(resp):
     origin = request.headers.get("Origin")
-    if origin in ALLOWED_ORIGINS:
+    allow_all = "*" in ALLOWED_ORIGINS
+    if origin and (allow_all or origin in ALLOWED_ORIGINS):
         resp.headers["Access-Control-Allow-Origin"] = origin
         resp.headers["Vary"] = "Origin"
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        resp.headers["Access-Control-Max-Age"] = "86400"
     return resp
 
 # database
@@ -1284,21 +1286,6 @@ def login():
         return jsonify({"success": True}), 200
     return jsonify({"success": False, "error": "Invalid password"}), 401
 
-@app.route("/_debug/db")
-def debug_db():
-    try:
-        url = str(db.engine.url)
-        row = db.session.execute(
-            db.text("select current_database(), inet_server_addr()::text")
-        ).fetchone()
-        return {
-            "sqlalchemy_url": url,
-            "current_database": row[0],
-            "db_host": row[1],
-            "worker_count": Worker.query.count(),
-        }, 200
-    except Exception as e:
-        return {"error": str(e)}, 500
 
 # Home route to confirm the app is running
 @app.route("/")
